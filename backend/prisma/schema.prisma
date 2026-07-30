@@ -1,0 +1,203 @@
+// Prisma schema — 需求2 多用户 AI 生成面板
+// 数据库：PostgreSQL 18
+// 运行： npx prisma generate && npx prisma migrate dev
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 用户角色
+enum Role {
+  super_admin
+  normal_user
+}
+
+// 网络访问范围（需求 #12，SSRF 防护）
+enum NetworkScope {
+  restricted
+  broad
+}
+
+// Key 来源范围
+enum KeyScope {
+  system
+  user
+}
+
+// 生成类型
+enum TaskType {
+  image
+  video
+  digital_human
+}
+
+// 任务状态
+enum TaskStatus {
+  pending
+  running
+  success
+  failed
+}
+
+// 提示词类型
+enum PromptType {
+  character
+  digital_human
+}
+
+model User {
+  id            String       @id @default(uuid())
+  username      String       @unique
+  passwordHash  String       @map("password_hash")
+  role          Role         @default(normal_user)
+  networkScope  NetworkScope @default(restricted) @map("network_scope")
+  status        Boolean      @default(true)
+  createdBy     String?      @map("created_by")
+  createdAt     DateTime     @default(now()) @map("created_at")
+  updatedAt     DateTime     @updatedAt @map("updated_at")
+
+  apiKeys       ApiKey[]
+  tasks         Task[]
+
+  @@map("users")
+}
+
+// 每用户 / 系统级 Key 池（Bearer 拆分 + 随机选号的持久化形态）
+model ApiKey {
+  id              String   @id @default(uuid())
+  provider        String // openai | runninghub
+  scope           KeyScope @default(user)
+  ownerUserId     String?  @map("owner_user_id")
+  keyEnc          String   @map("key_enc") // 加密存储（设计 §12：应用层 AES / KMS）
+  label           String?
+  createdAt       DateTime @default(now()) @map("created_at")
+  lastUsedAt      DateTime? @map("last_used_at")
+
+  owner           User?    @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+
+  @@index([ownerUserId])
+  @@index([provider])
+  @@map("api_keys")
+}
+
+// 形象库（全站共享）
+model Character {
+  id          String   @id @default(uuid())
+  name        String
+  coverUrl    String?  @map("cover_url")
+  category    String?
+  tags        String[] // JSONB 数组快速起步（设计 §6）
+  description String?
+  shared      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  images      CharacterImage[]
+
+  @@map("characters")
+}
+
+// 形象库下的多张生成图
+model CharacterImage {
+  id           String   @id @default(uuid())
+  characterId  String   @map("character_id")
+  url          String
+  localPath    String?  @map("local_path")
+  prompt       String?
+  model        String?
+  createdBy    String?  @map("created_by")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  character    Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+
+  @@index([characterId])
+  @@map("character_images")
+}
+
+// 歌曲库（全站共享）
+model Song {
+  id          String   @id @default(uuid())
+  title       String
+  artist      String?
+  url         String?
+  localPath   String?  @map("local_path")
+  duration    Int?
+  category    String?
+  tags        String[]
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("songs")
+}
+
+// 提示词库（全站共享）
+model Prompt {
+  id          String     @id @default(uuid())
+  title       String
+  content     String
+  type        PromptType
+  category    String?
+  tags        String[]
+  description String?
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+
+  @@map("prompts")
+}
+
+// 任务（按 user_id 隔离）
+model Task {
+  id               String     @id @default(uuid())
+  userId           String     @map("user_id")
+  type             TaskType
+  status           TaskStatus @default(pending)
+  prompt           String?
+  params           Json?
+  resultUrls       Json?      @map("result_urls")
+  resultLocalPaths Json?      @map("result_local_paths")
+  provider         String?
+  model            String?
+  errorMessage     String?    @map("error_message")
+  createdAt        DateTime   @default(now()) @map("created_at")
+  finishedAt       DateTime?  @map("finished_at")
+
+  user             User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  media            Media[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("tasks")
+}
+
+// 自动下载落地登记的媒体
+model Media {
+  id         String   @id @default(uuid())
+  taskId     String?  @map("task_id")
+  type       String
+  url        String
+  localPath  String?  @map("local_path")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  task       Task?    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@map("media")
+}
+
+// 三库共用标签 / 分类字典
+model Tag {
+  id        String   @id @default(uuid())
+  name      String
+  type      String // character | song | prompt
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([name, type])
+  @@map("tags")
+}

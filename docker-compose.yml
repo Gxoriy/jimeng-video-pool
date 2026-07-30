@@ -1,0 +1,63 @@
+services:
+  postgres:
+    image: postgres:18
+    container_name: aigen_panel_pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: abc123
+      POSTGRES_DB: aigen_panel
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7
+    container_name: aigen_panel_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: aigen_panel_backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://postgres:abc123@postgres:5432/aigen_panel
+      HOST: 0.0.0.0
+      PORT: 8000
+      JWT_SECRET: change-me-to-a-long-random-string
+      OPENAI_API_KEYS: "${OPENAI_API_KEYS:-}"
+      RUNNINGHUB_API_KEYS: "${RUNNINGHUB_API_KEYS:-}"
+      ALLOWED_EGRESS_HOSTS: "api.openai.com,*.runninghub.cn"
+      STORAGE_PATH: /app/data/media
+    ports:
+      - "8000:8000"
+    volumes:
+      - media:/app/data/media
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: aigen_panel_frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+
+volumes:
+  pgdata:
+  media:
