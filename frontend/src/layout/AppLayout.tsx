@@ -48,7 +48,7 @@ export default function AppLayout() {
   useEffect(() => {
     api.get('/auth/me').then((r) => setUser(r.data.data)).catch(() => {
       // 拦截器已处理刷新逻辑，这里失败说明 refresh token 也过期了
-      window.location.href = '/login';
+      window.location.hash = '#/login';
     }).finally(() => setLoading(false));
   }, []);
 
@@ -63,7 +63,8 @@ export default function AppLayout() {
     await api.post('/auth/logout');
     // 清掉本地草稿/任务快照，避免换账号后串数据
     clearWorkspaceStorage();
-    window.location.href = '/login';
+    // file:// 协议下 href='/login' 会变成 file:///login 空白页，统一用 hash 跳转
+    window.location.hash = '#/login';
   };
 
   return (

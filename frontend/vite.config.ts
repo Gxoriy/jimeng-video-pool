@@ -4,6 +4,8 @@ import react from '@vitejs/plugin-react';
 // 开发代理：把 /api 转发到后端（携带凭证 Cookie）
 export default defineConfig({
   plugins: [react()],
+  // Electron 生产环境用 file:// 协议加载，相对路径才能正确解析 js/css 资源
+  base: './',
   server: {
     host: '127.0.0.1',
     port: 5173,
