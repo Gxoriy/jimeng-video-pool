@@ -26,7 +26,15 @@ function getBackendPath() {
   const resourcesPath = process.resourcesPath;
   const backendDir = path.join(resourcesPath, 'backend');
 
-  // Windows 使用打包后的 exe，其他平台用 node + js
+  // 优先使用打包内自带的 Node 运行时（CI 注入到 backend/node_modules/node[.exe]），
+  // 这样分发给同事的安装包无需对方预装 Node。本地未注入时回退系统 Node。
+  const nodeName = process.platform === 'win32' ? 'node.exe' : 'node';
+  const bundledNode = path.join(backendDir, 'node_modules', nodeName);
+  if (fs.existsSync(bundledNode)) {
+    return { cmd: bundledNode, args: [path.join(backendDir, 'main.js')], cwd: backendDir };
+  }
+
+  // 兼容旧逻辑：若将来产出打包后的 main.exe 则优先
   if (process.platform === 'win32') {
     const exePath = path.join(backendDir, 'main.exe');
     if (fs.existsSync(exePath)) {
@@ -34,7 +42,7 @@ function getBackendPath() {
     }
   }
 
-  // 回退：用 node 运行 js
+  // 回退：用系统 PATH 上的 node 运行 js
   return {
     cmd: 'node',
     args: [path.join(backendDir, 'main.js')],

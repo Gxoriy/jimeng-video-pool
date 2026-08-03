@@ -35,7 +35,7 @@
     "appId": "com.aigen.panel",
     "productName": "AI生成面板",
     "directories": {
-      "output": "release"
+      "output": "C:/Users/zhiao888/aigen-electron-build"
     },
     "files": [
       "dist/**/*",
@@ -82,17 +82,28 @@
             "x64"
           ]
         }
+      ]
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
       ],
-      "icon": "public/vite.svg"
+      "category": "public.app-category.productivity"
+    },
+    "dmg": {
+      "title": "AI生成面板"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "AI生成面板",
-      "installerIcon": "public/vite.svg",
-      "uninstallerIcon": "public/vite.svg"
-    }
+    "shortcutName": "AI生成面板"
+  }
   },
   "allowScripts": {
     "esbuild@0.21.5": true

@@ -34,3 +34,8 @@ frontend/vite.config.ts.timestamp-*.mjs
 _deprecated/
 backend/_verify_chat.js
 
+# 打包输出（electron-builder 产物，体积大，禁止入库）
+frontend/release/
+frontend/release-build/
+frontend/electron-dist/
+
