@@ -3,10 +3,13 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "main": "electron/main.js",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview --host"
+    "preview": "vite preview --host",
+    "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
+    "electron:build": "npm run build && electron-builder"
   },
   "dependencies": {
     "@ant-design/icons": "^5.6.1",
@@ -20,8 +23,76 @@
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
+    "concurrently": "^10.0.4",
+    "cross-env": "^7.0.3",
+    "electron": "^43.2.0",
+    "electron-builder": "^26.15.3",
     "typescript": "^5.5.4",
-    "vite": "^5.4.6"
+    "vite": "^5.4.6",
+    "wait-on": "^9.1.0"
+  },
+  "build": {
+    "appId": "com.aigen.panel",
+    "productName": "AI生成面板",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../backend/dist",
+        "to": "backend",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../backend/node_modules",
+        "to": "backend/node_modules",
+        "filter": [
+          "**/*",
+          "!**/.bin/*"
+        ]
+      },
+      {
+        "from": "../backend/prisma",
+        "to": "backend/prisma",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../backend/package.json",
+        "to": "backend/package.json"
+      },
+      {
+        "from": "../backend/.env",
+        "to": "backend/.env"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "public/vite.svg"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "AI生成面板",
+      "installerIcon": "public/vite.svg",
+      "uninstallerIcon": "public/vite.svg"
+    }
   },
   "allowScripts": {
     "esbuild@0.21.5": true
