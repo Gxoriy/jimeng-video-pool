@@ -15,4 +15,15 @@ export default defineConfig({
       },
     },
   },
+  // SPA 回退：非 /api 且非静态文件请求 → 返回 index.html（解决刷新 404）
+  configureServer(server) {
+    server.middlewares.use((req, _res, next) => {
+      const url = req.url || '';
+      // 非 API 代理、无扩展名（或仅 .html）→ 回退到 index.html
+      if (!url.startsWith('/api') && !url.includes('.') && url !== '/') {
+        req.url = '/';
+      }
+      next();
+    });
+  },
 });

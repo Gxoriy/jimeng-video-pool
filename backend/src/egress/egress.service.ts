@@ -14,7 +14,6 @@ import { NetworkScope } from '../common/roles.enum';
  */
 @Injectable()
 export class EgressService {
-  private blockedNets: Array<(ip: string) => boolean> = [];
   private allowedHosts: string[] = [];
 
   constructor(private config: ConfigService) {

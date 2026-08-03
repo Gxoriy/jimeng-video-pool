@@ -13,20 +13,30 @@ import {
   UserOutlined,
   KeyOutlined,
   LogoutOutlined,
+  CloudServerOutlined,
+  SettingOutlined,
 } from '@ant-design/icons';
 import { api, User as UserType } from '../api/client';
+import { TaskSessionProvider, clearWorkspaceStorage } from '../context/TaskSession';
 
 const { Sider, Header, Content } = Layout;
 
-const menuItems = [
+const baseMenuItems = [
   { key: '/dashboard', icon: <DashboardOutlined />, label: '概览' },
-  { key: '/gen/image', icon: <PictureOutlined />, label: '图片生成' },
-  { key: '/gen/digital-human', icon: <CustomerServiceOutlined />, label: '数字人对口型' },
-  { key: '/gen/video', icon: <VideoCameraOutlined />, label: '视频生成' },
+  { key: '/inspiration', icon: <CustomerServiceOutlined />, label: '获取灵感' },
+  { key: '/character-gen', icon: <PictureOutlined />, label: '生成形象' },
+  { key: '/video', icon: <VideoCameraOutlined />, label: '视频生成' },
   { key: '/libraries/characters', icon: <TeamOutlined />, label: '形象库' },
   { key: '/libraries/songs', icon: <SoundOutlined />, label: '歌曲库' },
   { key: '/libraries/prompts', icon: <FileTextOutlined />, label: '提示词库' },
   { key: '/tasks', icon: <HistoryOutlined />, label: '任务管理' },
+  { key: '/task-logs', icon: <HistoryOutlined />, label: '任务日志' },
+  { key: '/settings', icon: <KeyOutlined />, label: '个人设置' },
+];
+
+const adminMenuItems = [
+  { key: '/users', icon: <UserOutlined />, label: '用户管理' },
+  { key: '/ai-channels', icon: <CloudServerOutlined />, label: 'AI 渠道配置' },
 ];
 
 export default function AppLayout() {
@@ -37,16 +47,22 @@ export default function AppLayout() {
 
   useEffect(() => {
     api.get('/auth/me').then((r) => setUser(r.data.data)).catch(() => {
+      // 拦截器已处理刷新逻辑，这里失败说明 refresh token 也过期了
       window.location.href = '/login';
     }).finally(() => setLoading(false));
   }, []);
 
   if (loading) return null;
 
+  const isAdmin = user?.role === 'super_admin';
+  const menuItems = isAdmin ? [...baseMenuItems, ...adminMenuItems] : baseMenuItems;
+
   const selectedKey = '/' + (location.pathname.split('/')[1] || 'dashboard');
 
   const onLogout = async () => {
     await api.post('/auth/logout');
+    // 清掉本地草稿/任务快照，避免换账号后串数据
+    clearWorkspaceStorage();
     window.location.href = '/login';
   };
 
@@ -75,14 +91,20 @@ export default function AppLayout() {
             </>
           )}
           <Dropdown menu={{ items: [
-            { key: 'api', icon: <KeyOutlined />, label: '我的密钥', onClick: () => navigate('/api-keys') },
+            { key: 'settings', icon: <KeyOutlined />, label: '个人设置', onClick: () => navigate('/settings') },
+            ...(isAdmin ? [
+              { key: 'users', icon: <UserOutlined />, label: '用户管理', onClick: () => navigate('/users') },
+              { key: 'channels', icon: <CloudServerOutlined />, label: 'AI 渠道配置', onClick: () => navigate('/ai-channels') },
+            ] : []),
             { key: 'logout', icon: <LogoutOutlined />, label: '退出登录', onClick: onLogout },
           ] }}>
             <a onClick={(e) => e.preventDefault()}>更多 ▾</a>
           </Dropdown>
         </Header>
         <Content style={{ margin: 16 }}>
-          <Outlet />
+          <TaskSessionProvider>
+            <Outlet />
+          </TaskSessionProvider>
         </Content>
       </Layout>
     </Layout>

@@ -1,8 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Card, Table, Select, Tag, Button, message } from 'antd';
+import { Card, Table, Select, Tag, Button, Space } from 'antd';
+import { FileTextOutlined } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 
 export default function Tasks() {
+  const navigate = useNavigate();
   const [data, setData] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -35,7 +38,10 @@ export default function Tasks() {
     {
       title: '操作',
       render: (_: any, row: any) => (
-        <Button size="small" danger onClick={async () => { await api.delete(`/tasks/${row.id}`); load(); }}>删除</Button>
+        <Space>
+          <Button size="small" icon={<FileTextOutlined />} onClick={() => navigate(`/task-logs?taskId=${row.id}`)}>日志</Button>
+          <Button size="small" danger onClick={async () => { await api.delete(`/tasks/${row.id}`); load(); }}>删除</Button>
+        </Space>
       ),
     },
   ];
@@ -48,7 +54,7 @@ export default function Tasks() {
           options={[{ value: 'image', label: '图片' }, { value: 'digital_human', label: '数字人' }, { value: 'video', label: '视频' }]} />
         <input placeholder="搜索提示词" value={q}
           onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && (setPage(1), load(1))}
+          onKeyDown={(e) => { if (e.key === 'Enter') { setPage(1); load(1); } }}
           style={{ width: 200 }} />
         <Button onClick={() => { setPage(1); load(1); }}>查询</Button>
       </div>

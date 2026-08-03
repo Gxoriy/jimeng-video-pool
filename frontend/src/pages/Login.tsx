@@ -26,10 +26,10 @@ export default function Login() {
       <Card title="AI 生成面板 · 登录" style={{ width: 360 }}>
         <Form form={form} onFinish={onFinish} layout="vertical">
           <Form.Item name="username" label="用户名" rules={[{ required: true }]}>
-            <Input placeholder="admin" />
+            <Input />
           </Form.Item>
           <Form.Item name="password" label="密码" rules={[{ required: true }]}>
-            <Input.Password placeholder="admin123456" />
+            <Input.Password />
           </Form.Item>
           <Button type="primary" htmlType="submit" block loading={loading}>
             登录

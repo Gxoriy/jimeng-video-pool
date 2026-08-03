@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { Role } from '../common/roles.enum';
 import { AuthUser } from '../auth/auth.service';
 import { PaginationDto } from '../common/dto/pagination.dto';
-import { TaskType, TaskStatus } from '../common/roles.enum';
+import { TaskType } from '../common/roles.enum';
 
 @Injectable()
 export class TasksService {

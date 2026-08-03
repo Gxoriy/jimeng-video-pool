@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Card, Table, Button, Modal, Form, Input, Select, Tag, message } from 'antd';
+import { Card, Table, Button, Modal, Form, Input, Select, Space, Tag, message, Popconfirm } from 'antd';
 import { api } from '../api/client';
 
 export default function Users() {
@@ -30,6 +30,12 @@ export default function Users() {
     load();
   };
 
+  const onDelete = async (row: any) => {
+    await api.delete(`/users/${row.id}`);
+    message.success('已删除');
+    load();
+  };
+
   const cols = [
     { title: '用户名', dataIndex: 'username' },
     { title: '角色', dataIndex: 'role', render: (r: string) => <Tag color={r === 'super_admin' ? 'gold' : 'blue'}>{r}</Tag> },
@@ -39,7 +45,12 @@ export default function Users() {
     {
       title: '操作',
       render: (_: any, row: any) => (
-        <Button size="small" onClick={() => { setEdit(row); form.setFieldsValue(row); }}>编辑</Button>
+        <Space>
+          <Button size="small" onClick={() => { setEdit(row); form.setFieldsValue(row); }}>编辑</Button>
+          <Popconfirm title="确认删除该用户？" onConfirm={() => onDelete(row)}>
+            <Button size="small" danger>删除</Button>
+          </Popconfirm>
+        </Space>
       ),
     },
   ];

@@ -21,3 +21,16 @@ backend/data/
 .idea/
 .vscode/
 .DS_Store
+
+# 本地凭证 / Cookie 导出（含 refresh_token 等，禁止入库）
+ck.txt
+*.cookie
+
+# 构建临时产物（Vite 时间戳中间文件）
+vite.config.ts.timestamp-*.mjs
+frontend/vite.config.ts.timestamp-*.mjs
+
+# 本地归档 / 临时验证脚本（非项目源码）
+_deprecated/
+backend/_verify_chat.js
+

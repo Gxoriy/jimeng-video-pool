@@ -1,4 +1,5 @@
-// Prisma schema — 需求2 多用户 AI 生成面板
+// Prisma schema — 多用户 AI 生成面板（三阶段流水线）
+// P1 生成形象 -> P2 获取灵感 -> P3 视频生成
 // 数据库：PostgreSQL 18
 // 运行： npx prisma generate && npx prisma migrate dev
 
@@ -17,23 +18,17 @@ enum Role {
   normal_user
 }
 
-// 网络访问范围（需求 #12，SSRF 防护）
+// 网络访问范围（SSRF 防护）
 enum NetworkScope {
   restricted
   broad
 }
 
-// Key 来源范围
-enum KeyScope {
-  system
-  user
-}
-
-// 生成类型
+// 任务类型 —— 严格对应三阶段流程
 enum TaskType {
-  image
-  video
-  digital_human
+  character // P1 生成形象（AI 渠道）
+  inspiration // P2 获取灵感 -> 动作提示词（AI 渠道）
+  video // P3 数字人视频（RunningHub，用户自备 Key）
 }
 
 // 任务状态
@@ -44,95 +39,119 @@ enum TaskStatus {
   failed
 }
 
-// 提示词类型
+// 提示词类型：形象提示词（P1 用）/ 动作提示词（P2 产出、P3 用）
 enum PromptType {
   character
-  digital_human
+  action
 }
 
 model User {
-  id            String       @id @default(uuid())
-  username      String       @unique
-  passwordHash  String       @map("password_hash")
-  role          Role         @default(normal_user)
-  networkScope  NetworkScope @default(restricted) @map("network_scope")
-  status        Boolean      @default(true)
-  createdBy     String?      @map("created_by")
-  createdAt     DateTime     @default(now()) @map("created_at")
-  updatedAt     DateTime     @updatedAt @map("updated_at")
+  id           String       @id @default(uuid())
+  username     String       @unique
+  passwordHash String       @map("password_hash")
+  role         Role         @default(normal_user)
+  networkScope NetworkScope @default(restricted) @map("network_scope")
+  status       Boolean      @default(true)
+  createdBy    String?      @map("created_by")
 
-  apiKeys       ApiKey[]
-  tasks         Task[]
+  // P3 视频生成消耗 R 币，超出新用户 100R 免费额度，
+  // 因此不做 Key 池随机选号，改为每个用户自填个人 RunningHub API Key（加密存储）。
+  runninghubKeyEnc String?   @map("runninghub_key_enc")
+  runninghubKeyAt  DateTime? @map("runninghub_key_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tasks   Task[]
+  uploads Upload[]
 
   @@map("users")
 }
 
-// 每用户 / 系统级 Key 池（Bearer 拆分 + 随机选号的持久化形态）
-model ApiKey {
-  id              String   @id @default(uuid())
-  provider        String // openai | runninghub
-  scope           KeyScope @default(user)
-  ownerUserId     String?  @map("owner_user_id")
-  keyEnc          String   @map("key_enc") // 加密存储（设计 §12：应用层 AES / KMS）
-  label           String?
-  createdAt       DateTime @default(now()) @map("created_at")
-  lastUsedAt      DateTime? @map("last_used_at")
+// AI 渠道配置 —— 仅超级管理员可配置，全站共享（P1/P2 调用）
+model AiChannel {
+  id        String  @id @default(uuid())
+  name      String // 渠道名称（如 "Edu 主力"）
+  protocol  String  @default("openai") // openai | anthropic
+  baseUrl   String  @map("base_url") // https://new.api.edu.gr/v1
+  apiKeyEnc String  @map("api_key_enc") // AES-256-GCM 加密存储
+  model     String? // 默认模型（如 Kimi K3 / GPT 5.6 Sol Max / Claude Opus 5）
+  enabled   Boolean @default(true)
 
-  owner           User?    @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  // 该渠道可用于哪些阶段（逗号分隔：character,inspiration,song）
+  usableFor String @default("character,inspiration,song") @map("usable_for")
 
-  @@index([ownerUserId])
-  @@index([provider])
-  @@map("api_keys")
+  // 能力标记
+  supportsImage  Boolean @default(true) @map("supports_image") // 支持生图
+  supportsVision Boolean @default(true) @map("supports_vision") // 支持读图（P2 需要）
+  streaming      Boolean @default(false)
+
+  proxyUrl String? @map("proxy_url")
+  remark   String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([enabled])
+  @@map("ai_channels")
 }
 
-// 形象库（全站共享）
+// 形象库（全站共享，P1 产出 / P2 P3 引用）
 model Character {
   id          String   @id @default(uuid())
   name        String
   coverUrl    String?  @map("cover_url")
   category    String?
-  tags        String[] // JSONB 数组快速起步（设计 §6）
+  tags        String[]
   description String?
   shared      Boolean  @default(true)
+  // 入库状态：pending_review=AI 识别后待人工审核归档；active=已归档入库
+  status      String   @default("active") @map("status")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  images      CharacterImage[]
+  images CharacterImage[]
 
   @@map("characters")
 }
 
 // 形象库下的多张生成图
 model CharacterImage {
-  id           String   @id @default(uuid())
-  characterId  String   @map("character_id")
-  url          String
-  localPath    String?  @map("local_path")
-  prompt       String?
-  model        String?
-  createdBy    String?  @map("created_by")
-  createdAt    DateTime @default(now()) @map("created_at")
+  id          String   @id @default(uuid())
+  characterId String   @map("character_id")
+  url         String
+  localPath   String?  @map("local_path")
+  prompt      String?
+  model       String?
+  createdBy   String?  @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
 
-  character    Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  character Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
 
   @@index([characterId])
   @@map("character_images")
 }
 
-// 歌曲库（全站共享）
+// 歌曲库（全站共享，P1 音乐信息 / P2 参考音频 / P3 对口型音频）
 model Song {
   id          String   @id @default(uuid())
   title       String
   artist      String?
   url         String?
   localPath   String?  @map("local_path")
-  duration    Int?
+  duration    Int? // 秒
   category    String?
   tags        String[]
+  lyrics      String? // 歌词/音乐信息，P1 P2 参考
   description String?
+  language    String? // 语种（如 中文/英文/日语/纯音乐），AI 识别带出
+  coverUrl    String?  @map("cover_url") // 封面图（下载源获取）
+  // 入库状态：pending_review=AI 识别后待人工审核归档；active=已归档入库
+  status      String   @default("active") @map("status")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
+  @@index([status])
   @@map("songs")
 }
 
@@ -141,57 +160,97 @@ model Prompt {
   id          String     @id @default(uuid())
   title       String
   content     String
-  type        PromptType
+  type        PromptType @default(character)
   category    String?
   tags        String[]
   description String?
+  createdBy   String?    @map("created_by")
   createdAt   DateTime   @default(now()) @map("created_at")
   updatedAt   DateTime   @updatedAt @map("updated_at")
 
   @@map("prompts")
 }
 
-// 任务（按 user_id 隔离）
+// 任务（严格按 user_id 隔离）
 model Task {
-  id               String     @id @default(uuid())
-  userId           String     @map("user_id")
-  type             TaskType
-  status           TaskStatus @default(pending)
-  prompt           String?
-  params           Json?
-  resultUrls       Json?      @map("result_urls")
-  resultLocalPaths Json?      @map("result_local_paths")
-  provider         String?
-  model            String?
-  errorMessage     String?    @map("error_message")
-  createdAt        DateTime   @default(now()) @map("created_at")
-  finishedAt       DateTime?  @map("finished_at")
+  id     String     @id @default(uuid())
+  userId String     @map("user_id")
+  type   TaskType
+  status TaskStatus @default(pending)
 
-  user             User?      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  media            Media[]
+  prompt           String? // P1 形象提示词 / P3 动作提示词
+  params           Json?
+  resultUrls       Json?   @map("result_urls")
+  resultLocalPaths Json?   @map("result_local_paths")
+  resultText       String? @map("result_text") // P2 产出的动作提示词
+  resultData       Json?   @map("result_data") // 结构化结果（如获取灵感产出的 {characterPrompt, actionPrompt}）
+
+  provider     String? // ai_channel | runninghub
+  model        String?
+  errorMessage String? @map("error_message")
+
+  createdAt  DateTime  @default(now()) @map("created_at")
+  finishedAt DateTime? @map("finished_at")
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  media    Media[]
+  taskLogs TaskLog[]
 
   @@index([userId])
+  @@index([type])
   @@index([status])
   @@index([createdAt])
   @@map("tasks")
 }
 
-// 自动下载落地登记的媒体
-model Media {
-  id         String   @id @default(uuid())
-  taskId     String?  @map("task_id")
-  type       String
-  url        String
-  localPath  String?  @map("local_path")
-  createdAt  DateTime @default(now()) @map("created_at")
+// 任务执行日志
+model TaskLog {
+  id        String   @id @default(uuid())
+  taskId    String   @map("task_id")
+  level     String // info | warn | error
+  message   String
+  createdAt DateTime @default(now()) @map("created_at")
 
-  task       Task?    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@map("task_logs")
+}
+
+// 用户上传的参考图 / 参考音频（按 user_id 隔离）
+model Upload {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  kind      String // image | audio
+  filename  String
+  localPath String   @map("local_path")
+  url       String // 可访问 URL（/api/files/xxx）
+  size      Int
+  mimeType  String   @map("mime_type")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("uploads")
+}
+
+// 生成结果落地登记
+model Media {
+  id        String   @id @default(uuid())
+  taskId    String?  @map("task_id")
+  type      String
+  url       String
+  localPath String?  @map("local_path")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  task Task? @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   @@index([taskId])
   @@map("media")
 }
 
-// 三库共用标签 / 分类字典
+// 三库共用标签字典
 model Tag {
   id        String   @id @default(uuid())
   name      String

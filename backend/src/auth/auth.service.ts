@@ -7,7 +7,6 @@ import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
 import { PrismaService } from '../prisma/prisma.service';
 import { Role, NetworkScope } from '../common/roles.enum';
-import { LoginDto } from './dto/login.dto';
 
 export interface AuthUser {
   id: string;
@@ -101,8 +100,8 @@ export class AuthService {
       networkScope: user.networkScope,
     };
     return {
-      accessToken: this.jwt.sign(payload, { expiresIn: '15m' }),
-      refreshToken: this.jwt.sign(payload, { expiresIn: '7d' }),
+      accessToken: this.jwt.sign(payload, { expiresIn: '24h' }),
+      refreshToken: this.jwt.sign(payload, { expiresIn: '24h' }),
     };
   }
 }

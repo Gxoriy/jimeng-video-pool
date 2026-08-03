@@ -6,7 +6,7 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: abc123
-      POSTGRES_DB: aigen_panel
+      POSTGRES_DB: jimen2api-all
     ports:
       - "5432:5432"
     volumes:
@@ -34,7 +34,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgres://postgres:abc123@postgres:5432/aigen_panel
+      DATABASE_URL: postgres://postgres:abc123@postgres:5432/jimen2api-all
       HOST: 0.0.0.0
       PORT: 8000
       JWT_SECRET: change-me-to-a-long-random-string

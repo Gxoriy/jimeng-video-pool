@@ -4,7 +4,6 @@ import {
   Delete,
   Get,
   Param,
-  ParseIntPipe,
   Patch,
   Post,
   Query,
@@ -27,27 +26,32 @@ export class UsersController {
   constructor(private users: UsersService) {}
 
   @Post()
-  create(@Body() dto: CreateUserDto, @CurrentUser() me: AuthUser) {
-    return this.users.create(dto, me.id);
+  async create(@Body() dto: CreateUserDto, @CurrentUser() me: AuthUser) {
+    const data = await this.users.create(dto, me.id);
+    return { code: 0, message: 'ok', data };
   }
 
   @Get()
-  findAll(@Query() q: PaginationDto) {
-    return this.users.findAll(q.page, q.pageSize, q.q);
+  async findAll(@Query() q: PaginationDto) {
+    const data = await this.users.findAll(q.page, q.pageSize, q.q);
+    return { code: 0, message: 'ok', data };
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.users.findOne(id);
+  async findOne(@Param('id') id: string) {
+    const data = await this.users.findOne(id);
+    return { code: 0, message: 'ok', data };
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: UpdateUserDto) {
-    return this.users.update(id, dto);
+  async update(@Param('id') id: string, @Body() dto: UpdateUserDto) {
+    const data = await this.users.update(id, dto);
+    return { code: 0, message: 'ok', data };
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.users.remove(id);
+  async remove(@Param('id') id: string) {
+    await this.users.remove(id);
+    return { code: 0, message: 'ok', data: null };
   }
 }

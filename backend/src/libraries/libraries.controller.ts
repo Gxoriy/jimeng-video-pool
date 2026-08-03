@@ -4,11 +4,9 @@ import {
   Delete,
   Get,
   Param,
-  ParseIntPipe,
   Post,
   Put,
   Query,
-  Req,
   UseGuards,
 } from '@nestjs/common';
 import { LibrariesService } from './libraries.service';
@@ -20,7 +18,9 @@ import {
   UpdateSongDto,
   CreatePromptDto,
   UpdatePromptDto,
-  RegenCharacterDto,
+  BatchImportCharactersDto,
+  BatchImportSongsDto,
+  BatchImportPromptsDto,
 } from './dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -33,86 +33,136 @@ export class LibrariesController {
 
   // 形象库
   @Get('characters')
-  listCharacters(@Query() q: PaginationDto) {
-    return this.libs.listCharacters(q);
+  async listCharacters(@Query() q: PaginationDto) {
+    const data = await this.libs.listCharacters(q);
+    return { code: 0, message: 'ok', data };
   }
   @Get('characters/:id')
-  getCharacter(@Param('id') id: string) {
-    return this.libs.getCharacter(id);
+  async getCharacter(@Param('id') id: string) {
+    const data = await this.libs.getCharacter(id);
+    return { code: 0, message: 'ok', data };
   }
   @Post('characters')
-  createCharacter(@Body() dto: CreateCharacterDto) {
-    return this.libs.createCharacter(dto);
+  async createCharacter(@Body() dto: CreateCharacterDto) {
+    const data = await this.libs.createCharacter(dto);
+    return { code: 0, message: 'ok', data };
   }
   @Put('characters/:id')
-  updateCharacter(@Param('id') id: string, @Body() dto: UpdateCharacterDto) {
-    return this.libs.updateCharacter(id, dto);
+  async updateCharacter(@Param('id') id: string, @Body() dto: UpdateCharacterDto) {
+    const data = await this.libs.updateCharacter(id, dto);
+    return { code: 0, message: 'ok', data };
   }
   @Delete('characters/:id')
-  deleteCharacter(@Param('id') id: string) {
-    return this.libs.deleteCharacter(id);
+  async deleteCharacter(@Param('id') id: string) {
+    await this.libs.deleteCharacter(id);
+    return { code: 0, message: 'ok', data: null };
   }
-  @Post('characters/:id/regen')
-  regen(
-    @Param('id') id: string,
-    @Body() dto: RegenCharacterDto,
+  /** 人工审核通过后归档入库 */
+  @Post('characters/:id/archive')
+  async archiveCharacter(@Param('id') id: string) {
+    const data = await this.libs.archiveCharacter(id);
+    return { code: 0, message: 'ok', data };
+  }
+  /** 批量导入形象 */
+  @Post('characters/batch-import')
+  async batchImportCharacters(
+    @Body() dto: BatchImportCharactersDto,
     @CurrentUser() user: AuthUser,
-    @Req() req: any,
   ) {
-    return this.libs.regenCharacter(id, dto, user, req.headers?.authorization);
+    const data = await this.libs.batchImportCharacters(dto, user);
+    return { code: 0, message: 'ok', data };
   }
 
   // 歌曲库
   @Get('songs')
-  listSongs(@Query() q: PaginationDto) {
-    return this.libs.listSongs(q);
+  async listSongs(@Query() q: PaginationDto, @Query('status') status?: string) {
+    const data = await this.libs.listSongs(q, status);
+    return { code: 0, message: 'ok', data };
   }
   @Get('songs/:id')
-  getSong(@Param('id') id: string) {
-    return this.libs.getSong(id);
+  async getSong(@Param('id') id: string) {
+    const data = await this.libs.getSong(id);
+    return { code: 0, message: 'ok', data };
   }
   @Post('songs')
-  createSong(@Body() dto: CreateSongDto) {
-    return this.libs.createSong(dto);
+  async createSong(@Body() dto: CreateSongDto) {
+    const data = await this.libs.createSong(dto);
+    return { code: 0, message: 'ok', data };
   }
   @Put('songs/:id')
-  updateSong(@Param('id') id: string, @Body() dto: UpdateSongDto) {
-    return this.libs.updateSong(id, dto);
+  async updateSong(@Param('id') id: string, @Body() dto: UpdateSongDto) {
+    const data = await this.libs.updateSong(id, dto);
+    return { code: 0, message: 'ok', data };
+  }
+  /** 人工审核通过后归档入库 */
+  @Post('songs/:id/archive')
+  async archiveSong(@Param('id') id: string) {
+    const data = await this.libs.archiveSong(id);
+    return { code: 0, message: 'ok', data };
   }
   @Delete('songs/:id')
-  deleteSong(@Param('id') id: string) {
-    return this.libs.deleteSong(id);
+  async deleteSong(@Param('id') id: string) {
+    await this.libs.deleteSong(id);
+    return { code: 0, message: 'ok', data: null };
+  }
+  /** 批量导入歌曲 */
+  @Post('songs/batch-import')
+  async batchImportSongs(@Body() dto: BatchImportSongsDto) {
+    const data = await this.libs.batchImportSongs(dto);
+    return { code: 0, message: 'ok', data };
   }
 
   // 提示词库
   @Get('prompts')
-  listPrompts(@Query() q: PaginationDto) {
-    return this.libs.listPrompts(q);
+  async listPrompts(@Query() q: PaginationDto) {
+    const data = await this.libs.listPrompts(q);
+    return { code: 0, message: 'ok', data };
   }
   @Get('prompts/:id')
-  getPrompt(@Param('id') id: string) {
-    return this.libs.getPrompt(id);
+  async getPrompt(@Param('id') id: string) {
+    const data = await this.libs.getPrompt(id);
+    return { code: 0, message: 'ok', data };
   }
   @Post('prompts')
-  createPrompt(@Body() dto: CreatePromptDto) {
-    return this.libs.createPrompt(dto);
+  async createPrompt(@Body() dto: CreatePromptDto) {
+    const data = await this.libs.createPrompt(dto);
+    return { code: 0, message: 'ok', data };
   }
   @Put('prompts/:id')
-  updatePrompt(@Param('id') id: string, @Body() dto: UpdatePromptDto) {
-    return this.libs.updatePrompt(id, dto);
+  async updatePrompt(@Param('id') id: string, @Body() dto: UpdatePromptDto) {
+    const data = await this.libs.updatePrompt(id, dto);
+    return { code: 0, message: 'ok', data };
   }
   @Delete('prompts/:id')
-  deletePrompt(@Param('id') id: string) {
-    return this.libs.deletePrompt(id);
+  async deletePrompt(@Param('id') id: string) {
+    await this.libs.deletePrompt(id);
+    return { code: 0, message: 'ok', data: null };
+  }
+  /** 批量导入提示词 */
+  @Post('prompts/batch-import')
+  async batchImportPrompts(
+    @Body() dto: BatchImportPromptsDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    const data = await this.libs.batchImportPrompts(dto, user);
+    return { code: 0, message: 'ok', data };
+  }
+  /** 调用 AI 对指定提示词智能分类（生成分类 + 标签） */
+  @Post('prompts/:id/classify')
+  async classifyPrompt(@Param('id') id: string) {
+    const data = await this.libs.classifyPrompt(id);
+    return { code: 0, message: 'ok', data };
   }
 
   // 标签
   @Get('tags/:type')
-  listTags(@Param('type') type: string) {
-    return this.libs.listTags(type);
+  async listTags(@Param('type') type: string) {
+    const data = await this.libs.listTags(type);
+    return { code: 0, message: 'ok', data };
   }
   @Post('tags/:type')
-  ensureTag(@Param('type') type: string, @Body('name') name: string) {
-    return this.libs.ensureTag(type, name);
+  async ensureTag(@Param('type') type: string, @Body('name') name: string) {
+    const data = await this.libs.ensureTag(type, name);
+    return { code: 0, message: 'ok', data };
   }
 }

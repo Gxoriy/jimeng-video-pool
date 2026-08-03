@@ -1,13 +1,13 @@
 import { Module } from '@nestjs/common';
 import { LibrariesService } from './libraries.service';
 import { LibrariesController } from './libraries.controller';
-import { KeyPoolModule } from '../key-pool/key-pool.module';
-import { ImageProvider } from '../generation/providers/image.provider';
+import { PrismaModule } from '../prisma/prisma.module';
+import { PipelineModule } from '../pipeline/pipeline.module';
 
 @Module({
-  imports: [KeyPoolModule],
+  imports: [PrismaModule, PipelineModule],
   controllers: [LibrariesController],
-  providers: [LibrariesService, ImageProvider],
+  providers: [LibrariesService],
   exports: [LibrariesService],
 })
 export class LibrariesModule {}

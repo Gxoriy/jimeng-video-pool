@@ -18,17 +18,20 @@ export class TasksController {
   constructor(private tasks: TasksService) {}
 
   @Get()
-  list(@CurrentUser() user: AuthUser, @Query() q: PaginationDto) {
-    return this.tasks.list(user, q);
+  async list(@CurrentUser() user: AuthUser, @Query() q: PaginationDto) {
+    const data = await this.tasks.list(user, q);
+    return { code: 0, message: 'ok', data };
   }
 
   @Get(':id')
-  get(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.tasks.get(user, id);
+  async get(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    const data = await this.tasks.get(user, id);
+    return { code: 0, message: 'ok', data };
   }
 
   @Delete(':id')
-  remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.tasks.remove(user, id);
+  async remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    await this.tasks.remove(user, id);
+    return { code: 0, message: 'ok', data: null };
   }
 }

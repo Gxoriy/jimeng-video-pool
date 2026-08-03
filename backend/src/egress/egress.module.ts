@@ -1,6 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { EgressService } from './egress.service';
-import { EgressHttpService } from '../generation/http/egress-http.service';
+import { EgressHttpService } from './egress-http.service';
 
 @Global()
 @Module({
