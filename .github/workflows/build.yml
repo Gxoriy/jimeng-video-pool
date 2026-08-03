@@ -118,16 +118,22 @@ jobs:
           cp "node-v${VER}-darwin-arm64/bin/node" backend/node_modules/node
           rm -rf "node-v${VER}-darwin-arm64" node.tar.gz
 
+      # 默认产出未签名包（package.json 中 mac.identity=null 已关闭签名）。
+      # 若日后配置了 Apple 证书 Secrets，取消 package.json 的 identity:null，
+      # 下面会把签名/公证环境变量注入，触发自动签名 + 公证。
+      - name: Export signing env (only if Apple cert secrets present)
+        if: ${{ secrets.MAC_CSC_LINK != '' }}
+        run: |
+          echo "CSC_LINK=${{ secrets.MAC_CSC_LINK }}" >> "$GITHUB_ENV"
+          echo "CSC_KEY_PASSWORD=${{ secrets.MAC_CSC_KEY_PASSWORD }}" >> "$GITHUB_ENV"
+          echo "APPLE_ID=${{ secrets.APPLE_ID }}" >> "$GITHUB_ENV"
+          echo "APPLE_APP_SPECIFIC_PASSWORD=${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}" >> "$GITHUB_ENV"
+          echo "APPLE_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}" >> "$GITHUB_ENV"
+
       - name: Build Electron (macOS arm64)
         working-directory: frontend
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: false   # 未配置 Apple 证书时不尝试签名，避免“empty password / frontend not a file”崩溃
-          # 配置以下 Secrets 即可自动签名 + 公证；留空则产出未签名 dmg（同事需 xattr -cr 放行）
-          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          CSC_IDENTITY_AUTO_DISCOVERY: false   # 未配置证书时不尝试自动发现签名身份，配合 identity:null 避免“empty password / frontend not a file”崩溃
         run: npm run electron:build -- --config.directories.output=release --mac --publish never
 
       - name: List artifacts
