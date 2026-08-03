@@ -19,7 +19,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Install frontend deps
         working-directory: frontend
@@ -37,6 +37,16 @@ jobs:
         working-directory: backend
         run: npm run build
 
+      # .env 是 gitignore 的，CI 上不存在；extraResources 需要它，这里用 secret 或占位生成
+      - name: Ensure backend/.env exists
+        shell: bash
+        run: |
+          if [ -z "${{ secrets.BACKEND_ENV }}" ]; then
+            printf 'DATABASE_URL=postgres://postgres:CHANGE_ME@127.0.0.1:5432/jimen2api-all\nPORT=3000\nNODE_ENV=production\n' > backend/.env
+          else
+            echo "${{ secrets.BACKEND_ENV }}" > backend/.env
+          fi
+
       # 把 Node 运行时打进包里，同事无需预装 Node
       - name: Bundle Node runtime (win-x64)
         shell: pwsh
@@ -49,7 +59,13 @@ jobs:
 
       - name: Build Electron (Windows)
         working-directory: frontend
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false   # 未配置证书时不尝试签名，避免 CI 上签名崩溃
         run: npm run electron:build -- --config.directories.output=release --win --publish never
+
+      - name: List artifacts
+        shell: bash
+        run: ls -la frontend/release/ || true
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
@@ -66,7 +82,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Install frontend deps
         working-directory: frontend
@@ -84,6 +100,15 @@ jobs:
         working-directory: backend
         run: npm run build
 
+      # .env 是 gitignore 的，CI 上不存在；extraResources 需要它，这里用 secret 或占位生成
+      - name: Ensure backend/.env exists
+        run: |
+          if [ -z "${{ secrets.BACKEND_ENV }}" ]; then
+            printf 'DATABASE_URL=postgres://postgres:CHANGE_ME@127.0.0.1:5432/jimen2api-all\nPORT=3000\nNODE_ENV=production\n' > backend/.env
+          else
+            echo "${{ secrets.BACKEND_ENV }}" > backend/.env
+          fi
+
       # 把 Node 运行时打进包里（darwin-arm64），同事无需预装 Node
       - name: Bundle Node runtime (darwin-arm64)
         run: |
@@ -96,13 +121,17 @@ jobs:
       - name: Build Electron (macOS arm64)
         working-directory: frontend
         env:
-          # 配置以下 Secrets 即可自动签名 + 公证；留空则产出未签名 dmg
+          CSC_IDENTITY_AUTO_DISCOVERY: false   # 未配置 Apple 证书时不尝试签名，避免“empty password / frontend not a file”崩溃
+          # 配置以下 Secrets 即可自动签名 + 公证；留空则产出未签名 dmg（同事需 xattr -cr 放行）
           CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: npm run electron:build -- --config.directories.output=release --mac --publish never
+
+      - name: List artifacts
+        run: ls -la frontend/release/ || true
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
@@ -120,6 +149,9 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+
+      - name: List downloaded artifacts
+        run: find artifacts -type f || true
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
