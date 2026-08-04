@@ -76,6 +76,9 @@ jobs:
   build-macos:
     name: Build macOS arm64 (Apple Silicon)
     runs-on: macos-latest
+    # secrets 上下文不能用于 step 级 if:，这里先映射成 job 级 env，供 step if 判断
+    env:
+      MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
     steps:
       - uses: actions/checkout@v4
 
@@ -122,7 +125,7 @@ jobs:
       # 若日后配置了 Apple 证书 Secrets，取消 package.json 的 identity:null，
       # 下面会把签名/公证环境变量注入，触发自动签名 + 公证。
       - name: Export signing env (only if Apple cert secrets present)
-        if: ${{ secrets.MAC_CSC_LINK != '' }}
+        if: ${{ env.MAC_CSC_LINK != '' }}
         run: |
           echo "CSC_LINK=${{ secrets.MAC_CSC_LINK }}" >> "$GITHUB_ENV"
           echo "CSC_KEY_PASSWORD=${{ secrets.MAC_CSC_KEY_PASSWORD }}" >> "$GITHUB_ENV"
