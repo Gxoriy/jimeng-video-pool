@@ -7,6 +7,8 @@ frontend/node_modules/
 dist/
 backend/dist/
 frontend/dist/
+# 本地测试时 frontend/dist 的副本（由 electron-builder extraResources 自动复制到打包产物，不入库）
+backend/client/
 
 # 环境变量 / 密钥
 .env

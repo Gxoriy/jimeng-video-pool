@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI 生成面板 - 服务启动器</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: #f0f2f5;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      color: #1f1f1f;
+    }
+    .card {
+      background: #fff;
+      padding: 32px;
+      border-radius: 12px;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+      width: 440px;
+      text-align: center;
+    }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: #f6ffed;
+      border: 1px solid #b7eb8f;
+      color: #389e0d;
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 13px;
+      margin-bottom: 20px;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #52c41a;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 20px;
+      font-weight: 600;
+    }
+    .hint {
+      color: #666;
+      font-size: 14px;
+      margin: 0 0 20px;
+    }
+    .url-box {
+      background: #f5f5f5;
+      border: 1px solid #d9d9d9;
+      border-radius: 8px;
+      padding: 12px;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: 15px;
+      word-break: break-all;
+      margin-bottom: 20px;
+      color: #1677ff;
+    }
+    a.button {
+      display: inline-block;
+      background: #1677ff;
+      color: #fff;
+      text-decoration: none;
+      padding: 10px 28px;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      transition: background 0.2s;
+    }
+    a.button:hover { background: #4096ff; }
+    .footer {
+      margin-top: 20px;
+      font-size: 12px;
+      color: #999;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="status"><span class="dot"></span> 后端服务运行中</div>
+    <h1>AI 生成面板</h1>
+    <p class="hint">请在浏览器中访问以下地址使用面板</p>
+    <div class="url-box">http://127.0.0.1:8000</div>
+    <a class="button" href="http://127.0.0.1:8000" target="_blank">打开浏览器访问</a>
+    <div class="footer">
+      关闭本窗口将停止后端服务<br>
+      首次使用请确认 resources/backend/.env 的 DATABASE_URL 指向可用数据库
+    </div>
+  </div>
+</body>
+</html>

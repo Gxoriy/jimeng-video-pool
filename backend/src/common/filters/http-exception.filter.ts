@@ -50,6 +50,12 @@ export class AllExceptionsFilter implements ExceptionFilter {
         ? (exception.getResponse() as any)?.message || exception.message
         : '服务器内部错误';
 
+    // 非预期异常记录到日志，便于生产环境排查（如静态文件路径错误）
+    if (!(exception instanceof HttpException)) {
+      const request = ctx.getRequest<Request>();
+      console.error(`[AllExceptionsFilter] ${request.method} ${request.url}`, exception);
+    }
+
     response.status(status).json({
       code: status,
       message: Array.isArray(message) ? message.join('; ') : message,

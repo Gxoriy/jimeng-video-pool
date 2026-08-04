@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog } = require('electron');
+const { app, BrowserWindow, dialog, shell } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
 const fs = require('fs');
@@ -87,31 +87,39 @@ function startBackend() {
 }
 
 /**
- * 创建主窗口
+ * 创建启动器窗口
+ * 生产环境：Electron 仅作为服务启动器，前端由后端直接托管，
+ * 用户在浏览器访问 http://127.0.0.1:8000。
  */
 function createWindow() {
+  const isDev = process.env.NODE_ENV === 'development';
+
+  if (isDev) {
+    // 开发环境：打开系统浏览器访问 Vite 开发服务器
+    shell.openExternal('http://localhost:5173');
+    return;
+  }
+
   mainWindow = new BrowserWindow({
-    width: 1400,
-    height: 900,
-    minWidth: 1024,
-    minHeight: 768,
-    title: 'AI 生成面板',
+    width: 520,
+    height: 420,
+    resizable: false,
+    maximizable: false,
+    title: 'AI 生成面板 - 服务启动器',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
     },
   });
 
-  const isDev = process.env.NODE_ENV === 'development';
+  // 加载启动器页面（只显示访问地址和打开浏览器按钮）
+  mainWindow.loadFile(path.join(__dirname, 'launcher.html'));
 
-  if (isDev) {
-    // 开发环境：加载 Vite 开发服务器
-    mainWindow.loadURL('http://localhost:5173');
-    mainWindow.webContents.openDevTools();
-  } else {
-    // 生产环境：加载打包后的静态文件
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
-  }
+  // 拦截 <a target="_blank">，用系统浏览器打开，而不是在 Electron 里开新窗口
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url);
+    return { action: 'deny' };
+  });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
