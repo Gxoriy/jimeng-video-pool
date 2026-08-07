@@ -17,8 +17,21 @@ export default registerAs('app', () => ({
   sessionSecret: process.env.SESSION_SECRET || 'change-me-session-secret',
 
   // EgressGuard 白名单（支持 *. 通配）
-  allowedEgressHosts: parseCsv(process.env.ALLOWED_EGRESS_HOSTS),
+  // 默认放行即梦域名；仍可用 ALLOWED_EGRESS_HOSTS 环境变量追加更多白名单
+  allowedEgressHosts: [
+    ...parseCsv(process.env.ALLOWED_EGRESS_HOSTS),
+    'jimeng.jianying.com',
+    '*.bytedanceapi.com',
+  ],
   blockedEgressHosts: parseCsv(process.env.BLOCKED_EGRESS_HOSTS),
+
+  /**
+   * 概念 B：外部号池服务（kieai2api 中转站，默认关闭）。
+   * 仅当配置了 EXTERNAL_POOL_BASE_URL 才启用；同步账号为 source='external'。
+   */
+  externalPoolBaseUrl: process.env.EXTERNAL_POOL_BASE_URL || '',
+  externalPoolUsername: process.env.EXTERNAL_POOL_USERNAME || 'admin',
+  externalPoolPassword: process.env.EXTERNAL_POOL_PASSWORD || 'Aa.17666521319',
 
   storagePath: process.env.STORAGE_PATH || './data/media',
   uploadPath: process.env.UPLOAD_PATH || './data/uploads',

@@ -15,6 +15,8 @@ import {
   LogoutOutlined,
   CloudServerOutlined,
   SettingOutlined,
+  ThunderboltOutlined,
+  SafetyCertificateOutlined,
 } from '@ant-design/icons';
 import { api, User as UserType } from '../api/client';
 import { TaskSessionProvider, clearWorkspaceStorage } from '../context/TaskSession';
@@ -31,12 +33,14 @@ const baseMenuItems = [
   { key: '/libraries/prompts', icon: <FileTextOutlined />, label: '提示词库' },
   { key: '/tasks', icon: <HistoryOutlined />, label: '任务管理' },
   { key: '/task-logs', icon: <HistoryOutlined />, label: '任务日志' },
+  { key: '/jimeng-gen', icon: <ThunderboltOutlined />, label: '即梦生成' },
   { key: '/settings', icon: <KeyOutlined />, label: '个人设置' },
 ];
 
 const adminMenuItems = [
   { key: '/users', icon: <UserOutlined />, label: '用户管理' },
   { key: '/ai-channels', icon: <CloudServerOutlined />, label: 'AI 渠道配置' },
+  { key: '/jimeng-accounts', icon: <SafetyCertificateOutlined />, label: '即梦账号池' },
 ];
 
 export default function AppLayout() {

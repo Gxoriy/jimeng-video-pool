@@ -41,3 +41,10 @@ frontend/release/
 frontend/release-build/
 frontend/electron-dist/
 
+# 即梦模块临时探查产物（含外部号池前端 bundle 副本，禁止入库）
+.probe/
+
+# TypeScript 增量构建缓存
+*.tsbuildinfo
+frontend/tsconfig.tsbuildinfo
+

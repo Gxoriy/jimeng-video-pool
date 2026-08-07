@@ -15,6 +15,7 @@ import { CharacterImportModule } from './character-import/character-import.modul
 import { TasksModule } from './tasks/tasks.module';
 import { AiChannelsModule } from './ai-channels/ai-channels.module';
 import { TaskLogsModule } from './task-logs/task-logs.module';
+import { JimengModule } from './jimeng/jimeng.module';
 
 /**
  * 应用根模块。
@@ -47,6 +48,7 @@ import { TaskLogsModule } from './task-logs/task-logs.module';
     CharacterImportModule,
     TasksModule,
     TaskLogsModule,
+    JimengModule,
   ],
 })
 export class AppModule {}

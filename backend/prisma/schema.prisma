@@ -250,6 +250,40 @@ model Media {
   @@map("media")
 }
 
+// 即梦（Jimeng）账号池 —— 管理员导入 cookie（概念 A：本地）/ 外部 :18813 拉取（概念 B）
+model JimengAccount {
+  id        String   @id @default(uuid())
+  label     String? // 备注名
+  cookieEnc String   @map("cookie_enc") // 加密存储的【完整 cookie map JSON】（整份保存，仅作兜底查值来源）
+  sessionid String // 提取的核心 token（= sid_tt = sessionid_ss），用于 generateCookie 重建
+  expireAt  DateTime? @map("expire_at") // 从 sessionid cookie 的 expirationDate 解析，用于过期提醒/重导
+  status    String   @default("active") @map("status") // active | disabled | expired
+  credits   Int      @default(0) // 最近一次查询的剩余积分
+  source    String   @default("local") @map("source") // local（导入） | external（来自 :18813）
+  lastUsedAt  DateTime? @map("last_used_at")
+  lastCheckAt DateTime? @map("last_check_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@map("jimeng_accounts")
+}
+
+// 即梦异步任务（数字人轮询，本期暂缓）
+model JimengTask {
+  taskId     String   @id
+  type       String
+  status     String // processing | completed | failed
+  progress   String?
+  resultJson Json?   @map("result_json")
+  userId     String?  @map("user_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@map("jimeng_tasks")
+}
+
 // 三库共用标签字典
 model Tag {
   id        String   @id @default(uuid())

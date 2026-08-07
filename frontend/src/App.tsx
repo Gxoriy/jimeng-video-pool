@@ -13,6 +13,8 @@ import TaskLogs from './pages/TaskLogs';
 import Users from './pages/Users';
 import Settings from './pages/Settings';
 import AiChannels from './pages/AiChannels';
+import JimengGen from './pages/JimengGen';
+import JimengAccounts from './pages/JimengAccounts';
 
 /**
  * 路由：三阶段流水线
@@ -38,6 +40,9 @@ export default function App() {
         <Route path="libraries/songs" element={<Songs />} />
         <Route path="libraries/prompts" element={<Prompts />} />
 
+        {/* 即梦生成（登录可见） */}
+        <Route path="jimeng-gen" element={<JimengGen />} />
+
         <Route path="tasks" element={<Tasks />} />
         <Route path="task-logs" element={<TaskLogs />} />
         <Route path="settings" element={<Settings />} />
@@ -45,6 +50,7 @@ export default function App() {
         {/* 仅超级管理员 */}
         <Route path="users" element={<Users />} />
         <Route path="ai-channels" element={<AiChannels />} />
+        <Route path="jimeng-accounts" element={<JimengAccounts />} />
 
         {/* 旧路径兼容 */}
         <Route path="gen/image" element={<Navigate to="/character-gen" replace />} />
