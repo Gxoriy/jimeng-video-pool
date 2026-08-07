@@ -37,7 +37,10 @@ export class JimengAccountService {
     let expireAt: Date | null = null;
     if (expStr) {
       const n = typeof expStr === 'number' ? expStr : Number(expStr);
-      if (!Number.isNaN(n)) expireAt = new Date(n * 1000 < 1e12 ? n * 1000 : n);
+      if (!Number.isNaN(n)) {
+        // browser cookie export 的 expirationDate 是秒级 Unix 时间戳；毫秒级则 >= 1e12
+        expireAt = new Date(n < 1e12 ? n * 1000 : n);
+      }
     }
     return { sessionid, expireAt, cookieJson: JSON.stringify(arr) };
   }

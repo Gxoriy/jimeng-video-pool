@@ -447,17 +447,33 @@ export class JimengCoreService {
 
   /**
    * 长效 cookie 访问网站接口换取短效 cookie。
-   * 调用 /passport/account/info/v2 验证登录态，并捕获响应 Set-Cookie 中刷新的
-   * sessionid / sid_tt / sid_guard（即「短效 cookie」），供后续生成使用。
    *
-   * 说明：jimen2api-all-master 内并无独立「转换脚本」——其 generateCookie(refreshToken)
-   * 仅用 sessionid 重建 Cookie、acquireToken 原样返回。这里的 refreshSession 就是在我们
-   * 模块里补上的「长效 cookie → 网站接口 → 短效 cookie」兑换逻辑。
+   * 策略：
+   * 1. 先调 /commerce/v1/benefits/user_credit（查积分）。能查到就说明 sessionid 可用，
+   *    直接判定 alive = true。这是 jimen2api 实际判定账号可用的核心标准。
+   * 2. 再调 /passport/account/info/v2 尝试捕获响应头 Set-Cookie 中刷新的 sessionid/sid_tt/sid_guard
+   *    （即「短效 cookie」），用于后续生成。该接口失败不影响存活判定。
    */
   async refreshSession(
     sessionid: string,
     scope: NetworkScope = NetworkScope.RESTRICTED,
   ): Promise<{ alive: boolean; refreshed?: { sessionid?: string; sidTt?: string; sidGuard?: string } }> {
+    // 步骤 1：以查积分作为存活判定（最可靠）
+    let alive = false;
+    try {
+      await this.getCredit(sessionid, scope);
+      alive = true;
+    } catch (err: any) {
+      // 积分不足（ret=5000/1006）说明账号能登录，只是没分，仍算 alive
+      if (err instanceof JimengInsufficientCreditError) {
+        alive = true;
+        this.logger.log(`[refreshSession] 账号登录正常但积分不足`);
+      } else {
+        this.logger.warn(`[refreshSession] 查积分失败，账号可能已失效: ${err?.message || err}`);
+      }
+    }
+
+    // 步骤 2：尝试从 passport 接口刷新短效 cookie（失败不阻断）
     try {
       const result = await this.jimengRequest(
         'post',
@@ -466,17 +482,20 @@ export class JimengCoreService {
         { params: { account_sdk_source: 'web' } },
         scope,
       );
-      let alive = false;
+      let passportAlive = false;
       try {
         const data = this.checkResult(result);
-        alive = !!data?.user_id;
-      } catch {
-        alive = false;
+        passportAlive = !!data?.user_id;
+      } catch (err: any) {
+        this.logger.debug(`[refreshSession] /passport/account/info/v2 返回非成功: ${err?.message || err}`);
       }
+      // passport 能走到 user_id 也认活（兜底）
+      if (passportAlive) alive = true;
       const refreshed = this.extractRefreshedCookies(result.headers);
       return { alive, refreshed };
-    } catch {
-      return { alive: false };
+    } catch (err: any) {
+      this.logger.debug(`[refreshSession] /passport/account/info/v2 调用失败: ${err?.message || err}`);
+      return { alive };
     }
   }
 
