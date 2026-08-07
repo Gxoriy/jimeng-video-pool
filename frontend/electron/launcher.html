@@ -28,9 +28,9 @@
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      background: #f6ffed;
-      border: 1px solid #b7eb8f;
-      color: #389e0d;
+      background: #fff7e6;
+      border: 1px solid #ffd591;
+      color: #d46b08;
       padding: 6px 14px;
       border-radius: 20px;
       font-size: 13px;
@@ -40,7 +40,7 @@
       width: 8px;
       height: 8px;
       border-radius: 50%;
-      background: #52c41a;
+      background: #faad14;
       animation: pulse 2s infinite;
     }
     @keyframes pulse {
@@ -90,15 +90,85 @@
 </head>
 <body>
   <div class="card">
-    <div class="status"><span class="dot"></span> 后端服务运行中</div>
+    <div class="status" id="status"><span class="dot" id="dot"></span> <span id="statusText">正在启动后端…</span></div>
     <h1>AI 生成面板</h1>
     <p class="hint">请在浏览器中访问以下地址使用面板</p>
-    <div class="url-box">http://127.0.0.1:8000</div>
-    <a class="button" href="http://127.0.0.1:8000" target="_blank">打开浏览器访问</a>
-    <div class="footer">
+    <div class="url-box" id="urlBox">http://127.0.0.1:8000</div>
+    <a class="button" id="openBtn" href="http://127.0.0.1:8000" target="_blank">打开浏览器访问</a>
+    <div class="footer" id="footer">
       关闭本窗口将停止后端服务<br>
       首次使用请确认 resources/backend/.env 的 DATABASE_URL 指向可用数据库
     </div>
   </div>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const port = params.get('port') || '8000';
+    const base = `http://127.0.0.1:${port}`;
+    const statusEl = document.getElementById('status');
+    const statusText = document.getElementById('statusText');
+    const urlBox = document.getElementById('urlBox');
+    const openBtn = document.getElementById('openBtn');
+    const footer = document.getElementById('footer');
+    urlBox.textContent = base;
+    openBtn.href = base;
+
+    const start = Date.now();
+    let resolved = false;
+
+    function setPending() {
+      statusEl.style.background = '#fff7e6';
+      statusEl.style.borderColor = '#ffd591';
+      statusEl.style.color = '#d46b08';
+      statusText.textContent = '后端启动中，请稍候…';
+      openBtn.style.pointerEvents = 'none';
+      openBtn.style.opacity = '0.5';
+    }
+    function setReady() {
+      resolved = true;
+      statusEl.style.background = '#f6ffed';
+      statusEl.style.borderColor = '#b7eb8f';
+      statusEl.style.color = '#389e0d';
+      statusText.textContent = '后端服务运行中';
+      openBtn.style.pointerEvents = 'auto';
+      openBtn.style.opacity = '1';
+    }
+    function setDbFail() {
+      resolved = true;
+      statusEl.style.background = '#fff1f0';
+      statusEl.style.borderColor = '#ffa39e';
+      statusEl.style.color = '#cf1322';
+      statusText.textContent = '后端已启动，但数据库连接失败';
+      footer.innerHTML =
+        '请检查 <b>resources/backend/.env</b> 的 DATABASE_URL 是否指向可达的 PostgreSQL，并确认该数据库已创建。';
+      openBtn.style.pointerEvents = 'auto';
+      openBtn.style.opacity = '1';
+    }
+    function setUnreachable() {
+      statusEl.style.background = '#fff1f0';
+      statusEl.style.borderColor = '#ffa39e';
+      statusEl.style.color = '#cf1322';
+      statusText.textContent = '后端未启动成功';
+      footer.innerHTML =
+        '可能端口被占用或启动报错。请确认 8000 端口未被占用，或查看应用运行日志。';
+      openBtn.style.pointerEvents = 'none';
+      openBtn.style.opacity = '0.5';
+    }
+
+    async function poll() {
+      try {
+        const r = await fetch(`${base}/api/health`, { cache: 'no-store' });
+        const j = await r.json();
+        if (j?.data?.db) setReady();
+        else setDbFail();
+      } catch {
+        // 持续连不上：超过 20 秒判定为启动失败
+        if (!resolved && Date.now() - start > 20000) setUnreachable();
+        else if (!resolved) setPending();
+      }
+    }
+
+    poll();
+    setInterval(poll, 2000);
+  </script>
 </body>
 </html>

@@ -26,6 +26,7 @@ import {
 } from '../api/pipeline';
 import { useTaskSession } from '../context/TaskSession';
 import { ImageSourcePicker, type ImageSourceValue } from '../components/SourcePickers';
+import { api } from '../api/client';
 
 /**
  * 即梦生成（图像 / 视频）—— 登录用户可见。
@@ -40,6 +41,20 @@ export default function JimengGen() {
   const [models, setModels] = useState<{ image?: JimengModel[]; video?: JimengModel[] }>({});
   const [tab, setTab] = useState<'image' | 'video'>('image');
   const [prompts, setPrompts] = useState<Prompt[]>([]);
+  // 新用户适配：超级管理员且即梦账号池为空时，引导先导入账号
+  const [needAccount, setNeedAccount] = useState(false);
+  useEffect(() => {
+    api
+      .get('/auth/me')
+      .then((r: any) => (r?.data?.role === 'super_admin' ? api.get('/admin/jimeng-accounts') : null))
+      .then((r: any) => {
+        if (!r) return;
+        const d = r?.data?.data;
+        const arr = Array.isArray(d) ? d : d?.data || [];
+        if (arr.length === 0) setNeedAccount(true);
+      })
+      .catch(() => {});
+  }, []);
   const { get: getSession, startJimengImage, startJimengVideo, clear, getDraft, patchDraft, clearDraft } =
     useTaskSession();
 
@@ -175,6 +190,21 @@ export default function JimengGen() {
         message="即梦生成（图像 / 视频）"
         description="调用本地号池（按积分加权选号）。任务后台异步执行，切换页面不会中断，刷新不丢数据。结果自动存入素材库。"
       />
+      {needAccount && (
+        <Alert
+          type="warning"
+          showIcon
+          closable
+          message="即梦账号池暂无账号"
+          description={
+            <>
+              即梦生成需要可用的 cookie 账号。请先到{' '}
+              <a href="#/jimeng-accounts">即梦账号池</a>{' '}
+              导入即梦 Cookie；否则提交的任务会因无可用账号而失败。
+            </>
+          }
+        />
+      )}
 
       <Card>
         <Tabs

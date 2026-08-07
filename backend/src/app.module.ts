@@ -16,6 +16,7 @@ import { TasksModule } from './tasks/tasks.module';
 import { AiChannelsModule } from './ai-channels/ai-channels.module';
 import { TaskLogsModule } from './task-logs/task-logs.module';
 import { JimengModule } from './jimeng/jimeng.module';
+import { HealthModule } from './health/health.module';
 
 /**
  * 应用根模块。
@@ -49,6 +50,7 @@ import { JimengModule } from './jimeng/jimeng.module';
     TasksModule,
     TaskLogsModule,
     JimengModule,
+    HealthModule,
   ],
 })
 export class AppModule {}

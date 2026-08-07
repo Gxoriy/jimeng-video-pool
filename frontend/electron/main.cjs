@@ -91,6 +91,24 @@ function startBackend() {
  * 生产环境：Electron 仅作为服务启动器，前端由后端直接托管，
  * 用户在浏览器访问 http://127.0.0.1:8000。
  */
+/**
+ * 读取后端 .env 的 PORT（默认 8000），传给启动器窗口用于拼接访问地址与轮询健康检查。
+ */
+function getPort() {
+  try {
+    const isDev = process.env.NODE_ENV === 'development';
+    const baseDir = isDev
+      ? path.join(__dirname, '../../backend')
+      : path.join(process.resourcesPath, 'backend');
+    const txt = fs.readFileSync(path.join(baseDir, '.env'), 'utf8');
+    const m = txt.match(/^\s*PORT\s*=\s*(\d+)/m);
+    if (m) return m[1];
+  } catch {
+    /* 忽略，回退 8000 */
+  }
+  return '8000';
+}
+
 function createWindow() {
   const isDev = process.env.NODE_ENV === 'development';
 
@@ -112,8 +130,9 @@ function createWindow() {
     },
   });
 
-  // 加载启动器页面（只显示访问地址和打开浏览器按钮）
-  mainWindow.loadFile(path.join(__dirname, 'launcher.html'));
+  // 加载启动器页面（只显示访问地址和打开浏览器按钮），并注入实际端口
+  const port = getPort();
+  mainWindow.loadFile(path.join(__dirname, 'launcher.html'), { search: `port=${port}` });
 
   // 拦截 <a target="_blank">，用系统浏览器打开，而不是在 Electron 里开新窗口
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
