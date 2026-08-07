@@ -33,6 +33,15 @@ export default registerAs('app', () => ({
   externalPoolUsername: process.env.EXTERNAL_POOL_USERNAME || 'admin',
   externalPoolPassword: process.env.EXTERNAL_POOL_PASSWORD || 'Aa.17666521319',
 
+  /**
+   * Phase 2 · 即梦每日签到养号。
+   * 服务启动后按固定间隔扫描号池，对「今天（Asia/Shanghai）还没签到」的 active 账号
+   * 调 /commerce/v1/benefits/credit_receive 领取每日积分并回写 credits。
+   * JIMENG_CHECKIN_ENABLED=false 可关闭；间隔默认 30 分钟。
+   */
+  jimengCheckinEnabled: (process.env.JIMENG_CHECKIN_ENABLED || 'true') !== 'false',
+  jimengCheckinIntervalMs: parseInt(process.env.JIMENG_CHECKIN_INTERVAL_MS || '1800000', 10),
+
   storagePath: process.env.STORAGE_PATH || './data/media',
   uploadPath: process.env.UPLOAD_PATH || './data/uploads',
   /** 生成 upload url 时使用的对外基址，留空则用相对路径 /api/files */

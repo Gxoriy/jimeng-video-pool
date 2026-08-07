@@ -15,6 +15,7 @@ import Settings from './pages/Settings';
 import AiChannels from './pages/AiChannels';
 import JimengGen from './pages/JimengGen';
 import JimengAccounts from './pages/JimengAccounts';
+import MediaLibrary from './pages/MediaLibrary';
 
 /**
  * 路由：三阶段流水线
@@ -42,6 +43,9 @@ export default function App() {
 
         {/* 即梦生成（登录可见） */}
         <Route path="jimeng-gen" element={<JimengGen />} />
+
+        {/* 素材库（视频/图片） */}
+        <Route path="libraries/media" element={<MediaLibrary />} />
 
         <Route path="tasks" element={<Tasks />} />
         <Route path="task-logs" element={<TaskLogs />} />

@@ -32,6 +32,9 @@ import { RunningHubClient } from './clients/runninghub.client';
     InspirationService,
     VideoGenService,
     AiChannelClient,
+    // 供即梦模块复用：任务记录器（写 tasks/task_logs）与素材解析器（上传/形象库 → 可用 URL）
+    TaskRecorderService,
+    AssetResolverService,
   ],
 })
 export class PipelineModule {}

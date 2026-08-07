@@ -333,6 +333,99 @@ export const getNodeMapStatus = () =>
     missing: string[];
   }>;
 
+/* ---------------- 即梦生成（异步任务） ---------------- */
+
+export interface JimengImagePayload {
+  model?: string;
+  prompt: string;
+  ratio?: string;
+  resolution?: string;
+  sampleStrength?: number;
+  negativePrompt?: string;
+  filePath?: string;
+  imageUploadId?: string;
+  characterId?: string;
+  characterImageId?: string;
+  saveToCharacterId?: string;
+  newCharacterName?: string;
+  newCharacterTags?: string[];
+}
+
+export const runJimengImage = (payload: JimengImagePayload) =>
+  api.post('/jimeng/image/generations', payload).then(unwrap) as Promise<{ taskId: string }>;
+
+export interface JimengVideoPayload {
+  model?: string;
+  prompt: string;
+  ratio?: string;
+  resolution?: string;
+  duration?: number;
+  filePaths?: string[];
+  firstFrameUploadId?: string;
+  firstFrameCharacterId?: string;
+  endFrameUploadId?: string;
+  endFrameCharacterId?: string;
+}
+
+export const runJimengVideo = (payload: JimengVideoPayload) =>
+  api.post('/jimeng/video/generations', payload).then(unwrap) as Promise<{ taskId: string }>;
+
+export interface JimengModel {
+  id: string;
+  name: string;
+}
+
+export const getJimengModels = () =>
+  api.get('/jimeng/models').then(unwrap) as Promise<{ image?: JimengModel[]; video?: JimengModel[] }>;
+
+/* ---------------- 素材库（media 表） ---------------- */
+
+export interface MediaItem {
+  id: string;
+  type: string;
+  url: string;
+  localPath?: string;
+  taskId?: string;
+  createdAt: string;
+  task?: { prompt?: string; model?: string; type?: string };
+}
+
+export const listMedia = (params: {
+  type?: string;
+  page?: number;
+  pageSize?: number;
+}) =>
+  api
+    .get('/media', { params: { page: 1, pageSize: 20, ...params } })
+    .then(unwrap) as Promise<{ data: MediaItem[]; total: number; page: number; pageSize: number }>;
+
+export const deleteMedia = (id: string) =>
+  api.delete(`/media/${id}`).then(unwrap);
+
+/* ---------------- 即梦签到管理 ---------------- */
+
+export interface CheckinResult {
+  id: string;
+  ok: boolean;
+  skipped?: boolean;
+  reason?: string;
+  credits?: number;
+}
+
+export interface CheckinAllResult {
+  total: number;
+  checkedIn: number;
+  skipped: number;
+  failed: number;
+  items: CheckinResult[];
+}
+
+export const checkinAll = () =>
+  api.post('/admin/jimeng-accounts/checkin-all').then(unwrap) as Promise<CheckinAllResult>;
+
+export const checkinOne = (id: string) =>
+  api.post(`/admin/jimeng-accounts/${id}/checkin`).then(unwrap) as Promise<CheckinResult>;
+
 /* ---------------- 个人设置（RunningHub Key） ---------------- */
 
 export const getSettings = () =>

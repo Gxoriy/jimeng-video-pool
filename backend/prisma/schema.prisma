@@ -24,11 +24,13 @@ enum NetworkScope {
   broad
 }
 
-// 任务类型 —— 严格对应三阶段流程
+// 任务类型 —— 三阶段流程 + 即梦
 enum TaskType {
   character // P1 生成形象（AI 渠道）
   inspiration // P2 获取灵感 -> 动作提示词（AI 渠道）
   video // P3 数字人视频（RunningHub，用户自备 Key）
+  jimeng_image // 即梦图像生成（号池）
+  jimeng_video // 即梦视频生成（号池）
 }
 
 // 任务状态
@@ -262,6 +264,9 @@ model JimengAccount {
   source    String   @default("local") @map("source") // local（导入） | external（来自 :18813）
   lastUsedAt  DateTime? @map("last_used_at")
   lastCheckAt DateTime? @map("last_check_at")
+  lastCheckinAt DateTime? @map("last_checkin_at") // 最近一次每日签到（领取积分）时间
+  creditsUsed   Int      @default(0) @map("credits_used") // 累计已消耗积分（生成前后差值累加），用于选号权重
+  checkinStreak Int      @default(0) @map("checkin_streak") // 连续签到天数
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -272,15 +277,18 @@ model JimengAccount {
 
 // 即梦异步任务（数字人轮询，本期暂缓）
 model JimengTask {
-  taskId     String   @id
+  taskId     String   @id // 关联 tasks.id（统一任务体系）
   type       String
   status     String // processing | completed | failed
   progress   String?
   resultJson Json?   @map("result_json")
   userId     String?  @map("user_id")
+  accountId  String?  @map("account_id") // 实际使用的号池账号
+  creditsUsed Int?    @map("credits_used") // 本次任务消耗的即梦积分（生成前后差值）
   createdAt  DateTime @default(now()) @map("created_at")
 
   @@index([userId])
+  @@index([accountId])
   @@map("jimeng_tasks")
 }
 

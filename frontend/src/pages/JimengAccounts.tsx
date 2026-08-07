@@ -18,8 +18,10 @@ import {
   DeleteOutlined,
   CloudSyncOutlined,
   ImportOutlined,
+  CalendarOutlined,
 } from '@ant-design/icons';
 import { api } from '../api/client';
+import { checkinAll, checkinOne } from '../api/pipeline';
 
 interface JimengAccount {
   id: string;
@@ -28,6 +30,9 @@ interface JimengAccount {
   source: string;
   status: string;
   credits: number;
+  creditsUsed?: number;
+  lastCheckinAt?: string;
+  checkinStreak?: number;
   expireAt?: string;
   lastCheckAt?: string;
   lastUsedAt?: string;
@@ -47,6 +52,8 @@ export default function JimengAccounts() {
   const [importing, setImporting] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [checkingId, setCheckingId] = useState<string | null>(null);
+  const [checkinId, setCheckinId] = useState<string | null>(null);
+  const [checkinAllLoading, setCheckinAllLoading] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [editing, setEditing] = useState<JimengAccount | null>(null);
   const [editForm] = Form.useForm();
@@ -127,6 +134,34 @@ export default function JimengAccounts() {
     editForm.setFieldsValue({ label: row.label || '', status: row.status });
     setEditOpen(true);
   };
+
+  const onCheckinOne = async (id: string) => {
+    setCheckinId(id);
+    try {
+      const r = await checkinOne(id);
+      if (r.ok && !r.skipped) message.success(`签到成功（积分 ${r.credits ?? '—'}）`);
+      else if (r.skipped) message.info(r.reason || '今日已签到');
+      else message.warning(r.reason || '签到失败');
+      load();
+    } catch (e: any) {
+      message.error(e?.response?.data?.message || '签到失败');
+    } finally {
+      setCheckinId(null);
+    }
+  };
+
+  const onCheckinAll = async () => {
+    setCheckinAllLoading(true);
+    try {
+      const r = await checkinAll();
+      message.success(`签到完成：成功 ${r.checkedIn}，跳过 ${r.skipped}，失败 ${r.failed}`);
+      load();
+    } catch (e: any) {
+      message.error(e?.response?.data?.message || '签到失败');
+    } finally {
+      setCheckinAllLoading(false);
+    }
+  };
   const onSubmitEdit = async () => {
     const v = await editForm.validateFields();
     try {
@@ -167,6 +202,29 @@ export default function JimengAccounts() {
     },
     { title: '积分', dataIndex: 'credits', width: 80 },
     {
+      title: '已消耗',
+      dataIndex: 'creditsUsed',
+      width: 80,
+      render: (v?: number) => v ? <Tag color="orange">{v}</Tag> : '—',
+    },
+    {
+      title: '签到',
+      width: 120,
+      render: (_: any, r: JimengAccount) => {
+        const today = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit' }).format(new Date());
+        const lastDate = r.lastCheckinAt ? new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit' }).format(new Date(r.lastCheckinAt)) : '';
+        const checkedToday = today === lastDate;
+        return (
+          <Space direction="vertical" size={2}>
+            <Tag color={checkedToday ? 'green' : 'default'} style={{ fontSize: 11 }}>
+              {checkedToday ? '今日已签' : '未签到'}
+            </Tag>
+            {r.checkinStreak ? <span style={{ fontSize: 11 }}>连续 {r.checkinStreak} 天</span> : null}
+          </Space>
+        );
+      },
+    },
+    {
       title: '过期时间',
       dataIndex: 'expireAt',
       width: 160,
@@ -180,11 +238,14 @@ export default function JimengAccounts() {
     },
     {
       title: '操作',
-      width: 230,
+      width: 300,
       render: (_: any, r: JimengAccount) => (
         <Space>
           <Button size="small" icon={<CheckCircleOutlined />} loading={checkingId === r.id} onClick={() => onCheck(r.id)}>
-            查活兑换
+            查活
+          </Button>
+          <Button size="small" icon={<CalendarOutlined />} loading={checkinId === r.id} onClick={() => onCheckinOne(r.id)}>
+            签到
           </Button>
           <Button size="small" onClick={() => openEdit(r)}>
             编辑
@@ -203,12 +264,15 @@ export default function JimengAccounts() {
         type="info"
         showIcon
         message="即梦账号池（本地 cookie / 外部号池）"
-        description="导入浏览器导出的 cookie（整份 JSON 数组），系统只提取 sessionid 重建调用 Cookie；「查活兑换」会用长效 cookie 访问即梦网站换取短效 cookie 并回写积分。外部号池需配置 EXTERNAL_POOL_BASE_URL 后启用。"
+        description="导入浏览器导出的 cookie（整份 JSON 数组），系统只提取 sessionid 重建调用 Cookie；「查活」会用长效 cookie 访问即梦网站换取短效 cookie 并回写积分。「签到」触发每日积分领取（Phase 2 养号），服务也会自动定时签到。外部号池需配置 EXTERNAL_POOL_BASE_URL 后启用。"
       />
       <Card
         title="即梦账号池"
         extra={
           <Space>
+            <Button icon={<CalendarOutlined />} loading={checkinAllLoading} onClick={onCheckinAll}>
+              全量签到
+            </Button>
             <Button icon={<CloudSyncOutlined />} loading={syncing} onClick={onSyncExternal}>
               同步外部号池
             </Button>

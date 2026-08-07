@@ -9,6 +9,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JimengAccountService } from './jimeng-account.service';
+import { JimengCheckinService } from './jimeng-checkin.service';
 import { ExternalPoolClient } from './external-pool.client';
 import { ImportAccountsDto, UpdateAccountDto } from './dto/jimeng.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -22,6 +23,7 @@ import { NetworkScope } from '../common/roles.enum';
 /**
  * 即梦账号池管理 —— 仅超级管理员。
  * 概念 A（本地导入）/ 概念 B（外部 :18813 拉取）共用此 CRUD，靠 source 字段区分。
+ * 含 Phase 2 签到管理：手动触发单号/全量签到、查看签到状态。
  */
 @Controller('admin/jimeng-accounts')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -30,6 +32,7 @@ export class JimengAdminController {
   constructor(
     private readonly svc: JimengAccountService,
     private readonly pool: ExternalPoolClient,
+    private readonly checkin: JimengCheckinService,
   ) {}
 
   @Post('import')
@@ -63,5 +66,23 @@ export class JimengAdminController {
   @Post('sync-external')
   async syncExternal() {
     return { code: 0, message: 'ok', data: await this.pool.syncToLocal() };
+  }
+
+  /* ---------------- Phase 2 · 签到管理 ---------------- */
+
+  /** 手动触发全量签到 */
+  @Post('checkin-all')
+  async checkinAll(@CurrentUser() user: AuthUser) {
+    const scope = user.networkScope as NetworkScope;
+    const result = await this.checkin.checkinAll(scope);
+    return { code: 0, message: 'ok', data: result };
+  }
+
+  /** 手动触发单个账号签到 */
+  @Post(':id/checkin')
+  async checkinOne(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    const scope = user.networkScope as NetworkScope;
+    const result = await this.checkin.checkinOne(id, scope);
+    return { code: 0, message: 'ok', data: result };
   }
 }

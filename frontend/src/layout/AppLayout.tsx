@@ -17,6 +17,7 @@ import {
   SettingOutlined,
   ThunderboltOutlined,
   SafetyCertificateOutlined,
+  FolderOpenOutlined,
 } from '@ant-design/icons';
 import { api, User as UserType } from '../api/client';
 import { TaskSessionProvider, clearWorkspaceStorage } from '../context/TaskSession';
@@ -31,6 +32,7 @@ const baseMenuItems = [
   { key: '/libraries/characters', icon: <TeamOutlined />, label: '形象库' },
   { key: '/libraries/songs', icon: <SoundOutlined />, label: '歌曲库' },
   { key: '/libraries/prompts', icon: <FileTextOutlined />, label: '提示词库' },
+  { key: '/libraries/media', icon: <FolderOpenOutlined />, label: '素材库' },
   { key: '/tasks', icon: <HistoryOutlined />, label: '任务管理' },
   { key: '/task-logs', icon: <HistoryOutlined />, label: '任务日志' },
   { key: '/jimeng-gen', icon: <ThunderboltOutlined />, label: '即梦生成' },

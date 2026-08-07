@@ -177,8 +177,11 @@ export class JimengAccountService {
     const pool = available.length ? available : candidates;
     if (!pool.length) throw new BadRequestException('当前没有可用的即梦账号（请先导入并查活）');
 
-    // 按积分加权（积分<=0 时权重=1，避免饿死）
-    const weights = pool.map((c) => (c.credits > 0 ? c.credits : 1));
+    // 按可用积分加权（credits - creditsUsed），积分<=0 时权重=1，避免饿死
+    const weights = pool.map((c) => {
+      const avail = c.credits - (c.creditsUsed || 0);
+      return avail > 0 ? avail : 1;
+    });
     const total = weights.reduce((a, b) => a + b, 0);
     let r = Math.random() * total;
     let idx = 0;

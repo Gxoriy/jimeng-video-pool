@@ -4,13 +4,17 @@ import {
   runCharacterGen,
   runInspiration,
   runVideoGen,
+  runJimengImage,
+  runJimengVideo,
   normalizeUrls,
   type CharacterGenPayload,
   type InspirationPayload,
   type VideoGenPayload,
+  type JimengImagePayload,
+  type JimengVideoPayload,
 } from '../api/pipeline';
 
-export type Stage = 'character' | 'inspiration' | 'video';
+export type Stage = 'character' | 'inspiration' | 'video' | 'jimeng_image' | 'jimeng_video';
 
 export interface SessionState {
   taskId?: string;
@@ -48,6 +52,8 @@ interface TaskSessionCtx {
   startCharacter: (payload: CharacterGenPayload) => Promise<string>;
   startInspiration: (payload: InspirationPayload) => Promise<string>;
   startVideo: (payload: VideoGenPayload) => Promise<string>;
+  startJimengImage: (payload: JimengImagePayload) => Promise<string>;
+  startJimengVideo: (payload: JimengVideoPayload) => Promise<string>;
   clear: (stage: Stage) => void;
 
   /** 表单草稿：读取 */
@@ -75,12 +81,12 @@ type Persisted = {
   drafts: Record<Stage, DraftState>;
 };
 
-const STAGES: Stage[] = ['character', 'inspiration', 'video'];
+const STAGES: Stage[] = ['character', 'inspiration', 'video', 'jimeng_image', 'jimeng_video'];
 
 function readStorage(): { data: Persisted; restored: boolean } {
   const fresh: Persisted = {
-    sessions: { character: emptySession(), inspiration: emptySession(), video: emptySession() },
-    drafts: { character: emptyDraft(), inspiration: emptyDraft(), video: emptyDraft() },
+    sessions: { character: emptySession(), inspiration: emptySession(), video: emptySession(), jimeng_image: emptySession(), jimeng_video: emptySession() },
+    drafts: { character: emptyDraft(), inspiration: emptyDraft(), video: emptyDraft(), jimeng_image: emptyDraft(), jimeng_video: emptyDraft() },
   };
   try {
     const raw = localStorage.getItem(TASK_STORAGE_KEY);
@@ -210,6 +216,14 @@ export function TaskSessionProvider({ children }: { children: React.ReactNode })
     [start],
   );
   const startVideo = useCallback((p: VideoGenPayload) => start('video', runVideoGen, p), [start]);
+  const startJimengImage = useCallback(
+    (p: JimengImagePayload) => start('jimeng_image', runJimengImage, p),
+    [start],
+  );
+  const startJimengVideo = useCallback(
+    (p: JimengVideoPayload) => start('jimeng_video', runJimengVideo, p),
+    [start],
+  );
 
   // 注意：必须整体替换，否则 taskId/status 会残留（旧实现用 patch 合并，清不掉）
   const clear = useCallback((stage: Stage) => {
@@ -223,6 +237,8 @@ export function TaskSessionProvider({ children }: { children: React.ReactNode })
         startCharacter,
         startInspiration,
         startVideo,
+        startJimengImage,
+        startJimengVideo,
         clear,
         getDraft: (s) => drafts[s],
         patchDraft,

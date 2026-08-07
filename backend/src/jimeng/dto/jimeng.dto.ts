@@ -41,6 +41,29 @@ export class ImageGenDto {
   /** 可选参考图（远程 URL 或 base64 data URL） */
   @IsOptional() @IsString()
   filePath?: string;
+
+  /** 参考图来源：本地上传 ID（与 filePath/characterId 三选一） */
+  @IsOptional() @IsString()
+  imageUploadId?: string;
+
+  /** 参考图来源：形象库形象 ID（取最新一张图） */
+  @IsOptional() @IsString()
+  characterId?: string;
+
+  /** 参考图来源：形象库精确到某一张图 */
+  @IsOptional() @IsString()
+  characterImageId?: string;
+
+  /** 生成结果挂载到已有形象（形象库） */
+  @IsOptional() @IsString()
+  saveToCharacterId?: string;
+
+  /** 或新建形象条目（与 saveToCharacterId 二选一） */
+  @IsOptional() @IsString()
+  newCharacterName?: string;
+
+  @IsOptional() @IsArray() @IsString({ each: true })
+  newCharacterTags?: string[];
 }
 
 export class VideoGenDto {
@@ -63,4 +86,20 @@ export class VideoGenDto {
   @IsOptional() @IsArray()
   @IsString({ each: true })
   filePaths?: string[];
+
+  /** 首帧来源：本地上传 ID */
+  @IsOptional() @IsString()
+  firstFrameUploadId?: string;
+
+  /** 首帧来源：形象库形象 ID（取最新一张图） */
+  @IsOptional() @IsString()
+  firstFrameCharacterId?: string;
+
+  /** 尾帧来源：本地上传 ID */
+  @IsOptional() @IsString()
+  endFrameUploadId?: string;
+
+  /** 尾帧来源：形象库形象 ID */
+  @IsOptional() @IsString()
+  endFrameCharacterId?: string;
 }
