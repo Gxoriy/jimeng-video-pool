@@ -19,6 +19,7 @@ import {
   CloudSyncOutlined,
   ImportOutlined,
   CalendarOutlined,
+  CodeOutlined,
 } from '@ant-design/icons';
 import { api } from '../api/client';
 import { checkinAll, checkinOne } from '../api/pipeline';
@@ -57,6 +58,9 @@ export default function JimengAccounts() {
   const [editOpen, setEditOpen] = useState(false);
   const [editing, setEditing] = useState<JimengAccount | null>(null);
   const [editForm] = Form.useForm();
+  const [jsonOpen, setJsonOpen] = useState(false);
+  const [accountJson, setAccountJson] = useState<string>('');
+  const [jsonLoading, setJsonLoading] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -133,6 +137,37 @@ export default function JimengAccounts() {
     setEditing(row);
     editForm.setFieldsValue({ label: row.label || '', status: row.status });
     setEditOpen(true);
+  };
+
+  const onViewJson = async (row: JimengAccount) => {
+    setJsonLoading(true);
+    setJsonOpen(true);
+    try {
+      const r = await api.get(`/admin/jimeng-accounts/${row.id}/detail`);
+      const d = r.data.data;
+      const jsonObj = {
+        id: d.id,
+        label: d.label,
+        source: d.source,
+        status: d.status,
+        sessionid: d.sessionid,
+        credits: d.credits,
+        creditsUsed: d.creditsUsed,
+        expireAt: d.expireAt,
+        lastCheckAt: d.lastCheckAt,
+        lastUsedAt: d.lastUsedAt,
+        lastCheckinAt: d.lastCheckinAt,
+        checkinStreak: d.checkinStreak,
+        createdAt: d.createdAt,
+        cookieJson: d.cookieJson,
+      };
+      setAccountJson(JSON.stringify(jsonObj, null, 2));
+    } catch (e: any) {
+      message.error(e?.response?.data?.message || '获取详情失败');
+      setAccountJson('获取失败');
+    } finally {
+      setJsonLoading(false);
+    }
   };
 
   const onCheckinOne = async (id: string) => {
@@ -238,7 +273,7 @@ export default function JimengAccounts() {
     },
     {
       title: '操作',
-      width: 300,
+      width: 360,
       render: (_: any, r: JimengAccount) => (
         <Space>
           <Button size="small" icon={<CheckCircleOutlined />} loading={checkingId === r.id} onClick={() => onCheck(r.id)}>
@@ -249,6 +284,9 @@ export default function JimengAccounts() {
           </Button>
           <Button size="small" onClick={() => openEdit(r)}>
             编辑
+          </Button>
+          <Button size="small" icon={<CodeOutlined />} onClick={() => onViewJson(r)}>
+            JSON
           </Button>
           <Popconfirm title="确定删除该账号？" onConfirm={() => onDelete(r.id)}>
             <Button size="small" danger icon={<DeleteOutlined />} />
@@ -342,6 +380,26 @@ export default function JimengAccounts() {
             />
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        open={jsonOpen}
+        title="账号完整 JSON"
+        onCancel={() => setJsonOpen(false)}
+        footer={<Button onClick={() => setJsonOpen(false)}>关闭</Button>}
+        width={700}
+        destroyOnClose
+      >
+        {jsonLoading ? (
+          <div style={{ textAlign: 'center', padding: 40 }}>加载中...</div>
+        ) : (
+          <Input.TextArea
+            rows={20}
+            value={accountJson}
+            readOnly
+            style={{ fontFamily: 'monospace', fontSize: 12 }}
+          />
+        )}
       </Modal>
     </Space>
   );

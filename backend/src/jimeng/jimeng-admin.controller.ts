@@ -46,6 +46,11 @@ export class JimengAdminController {
     return { code: 0, message: 'ok', data: await this.svc.list() };
   }
 
+  @Get(':id/detail')
+  async getDetail(@Param('id') id: string) {
+    return { code: 0, message: 'ok', data: await this.svc.getDetail(id) };
+  }
+
   @Put(':id')
   async update(@Param('id') id: string, @Body() dto: UpdateAccountDto) {
     return { code: 0, message: 'ok', data: await this.svc.update(id, dto) };

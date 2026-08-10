@@ -110,6 +110,23 @@ export class JimengAccountService {
     return this.prisma.jimengAccount.update({ where: { id }, data: { ...(dto.label !== undefined ? { label: dto.label } : {}), ...(dto.status !== undefined ? { status: dto.status } : {}) } });
   }
 
+  /** 获取账号完整信息（含解密后的 cookie JSON，用于编辑界面查看） */
+  async getDetail(id: string) {
+    const acc = await this.prisma.jimengAccount.findUnique({ where: { id } });
+    if (!acc) throw new NotFoundException('账号不存在');
+    let cookieJson: any = null;
+    try {
+      cookieJson = JSON.parse(decrypt(acc.cookieEnc));
+    } catch {
+      cookieJson = null;
+    }
+    return {
+      ...acc,
+      sessionid: decrypt(acc.sessionid),
+      cookieJson,
+    };
+  }
+
   async remove(id: string) {
     const existing = await this.prisma.jimengAccount.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('账号不存在');
