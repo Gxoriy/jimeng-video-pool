@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { encrypt, decrypt } from '../common/utils/encryption.util';
 import { JimengCoreService } from './jimeng-core.service';
 import { NetworkScope } from '../common/roles.enum';
+import { FileService } from '../file/file.service';
 
 export interface ImportResult {
   id: string;
@@ -19,6 +20,7 @@ export class JimengAccountService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly core: JimengCoreService,
+    private readonly fileService: FileService,
   ) {}
 
   /** 从浏览器导出的 cookie 数组中提取 sessionid + 过期时间 */
@@ -144,11 +146,17 @@ export class JimengAccountService {
    * 调 /passport/account/info/v2 验证登录态并捕获刷新后的 sessionid，
    * 若返回值与当前 sessionid 不同，则把短效 cookie 写回 sessionid 与整份 cookie map。
    */
-  async refresh(id: string, scope: NetworkScope): Promise<{ id: string; alive: boolean; refreshedSessionid?: string; credits: number; status: string }> {
+  async refresh(id: string, scope: NetworkScope): Promise<{ id: string; alive: boolean; refreshedSessionid?: string; credits: number; status: string; error?: string }> {
     const acc = await this.prisma.jimengAccount.findUnique({ where: { id } });
     if (!acc) throw new NotFoundException('账号不存在');
     const sessionid = decrypt(acc.sessionid);
-    const { alive, refreshed } = await this.core.refreshSession(sessionid, scope);
+    let lastError: string | undefined;
+    const { alive, refreshed, error: refreshErr } = await this.core.refreshSession(sessionid, scope).catch((e) => {
+      lastError = e?.message || String(e);
+      return { alive: false, refreshed: undefined, error: lastError };
+    });
+    this.logger.warn(`[refresh] sessionid=${sessionid.slice(0, 12)}... -> raw alive=${alive}, refreshErr=${refreshErr || 'none'}`);
+    if (refreshErr) lastError = refreshErr;
 
     let newSessionid = sessionid;
     let refreshedSessionid: string | undefined;
@@ -181,7 +189,7 @@ export class JimengAccountService {
     }
     const status = alive ? 'active' : 'expired';
     await this.prisma.jimengAccount.update({ where: { id }, data: { status, credits, lastCheckAt: new Date() } });
-    return { id, alive, refreshedSessionid, credits, status };
+    return { id, alive, refreshedSessionid, credits, status, error: lastError };
   }
 
   /** 选号：从 active 且未过期账号中按积分加权随机选一个（带并发锁） */
@@ -239,5 +247,41 @@ export class JimengAccountService {
     } catch {
       return null;
     }
+  }
+
+  /** 获取账号摘要（含总积分） */
+  async getSummary() {
+    const [total, activeCount, creditResult] = await Promise.all([
+      this.prisma.jimengAccount.count(),
+      this.prisma.jimengAccount.count({ where: { status: 'active' } }),
+      this.prisma.jimengAccount.aggregate({
+        _sum: { credits: true },
+        where: { status: 'active' },
+      }),
+    ]);
+    
+    return {
+      totalAccounts: total,
+      activeCount,
+      totalCredits: creditResult._sum.credits || 0,
+    };
+  }
+
+  /** 上传参考素材文件 */
+  async uploadReferenceFile(file: Express.Multer.File, category: string) {
+    // 使用 FileService 保存文件
+    const savedFile = await this.fileService.saveFromBuffer(
+      file.buffer,
+      file.originalname,
+      file.mimetype,
+      category as any,
+    );
+    
+    return {
+      id: savedFile.id,
+      url: savedFile.url,
+      filename: savedFile.filename,
+      category,
+    };
   }
 }

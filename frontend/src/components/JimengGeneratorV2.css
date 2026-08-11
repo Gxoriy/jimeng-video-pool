@@ -1,0 +1,508 @@
+/* ========================================
+   即梦生成器 V2 - 样式
+   参考 jimeng.jianying.com 官方UI风格
+   ======================================== */
+
+/* CSS Variables */
+.jimeng-generator-v2 {
+  --jg-primary: #6366f1;
+  --jg-primary-hover: #4f46e5;
+  --jg-bg: #ffffff;
+  --jg-bg-secondary: #f9fafb;
+  --jg-border: #e5e7eb;
+  --jg-text: #1f2937;
+  --jg-text-secondary: #6b7280;
+  --jg-text-muted: #9ca3af;
+  --jg-radius: 12px;
+  --jg-radius-sm: 8px;
+  --jg-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
+  --jg-shadow-md: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1);
+
+  max-width: 860px;
+  margin: 0 auto;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  color: var(--jg-text);
+}
+
+/* ====== Header ====== */
+.jg-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  padding: 0 4px;
+}
+
+.jg-tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--jg-bg-secondary);
+  border-radius: 10px;
+  padding: 4px;
+}
+
+.jg-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px;
+  border: none;
+  background: transparent;
+  color: var(--jg-text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+}
+
+.jg-tab:hover {
+  color: var(--jg-text);
+  background: rgba(99, 102, 241, 0.06);
+}
+
+.jg-tab.active {
+  background: var(--jg-bg);
+  color: var(--jg-primary);
+  box-shadow: var(--jg-shadow);
+  font-weight: 600;
+}
+
+.jg-credits {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--jg-text);
+  padding: 6px 14px;
+  background: linear-gradient(135deg, #fffbeb, #fef3c7);
+  border-radius: 20px;
+  border: 1px solid #fde68a;
+}
+
+/* ====== Input Area ====== */
+.jg-input-area {
+  background: var(--jg-bg);
+  border: 1.5px solid var(--jg-border);
+  border-radius: var(--jg-radius);
+  box-shadow: var(--jg-shadow-md);
+  overflow: hidden;
+  transition: border-color 0.2s ease;
+}
+
+.jg-input-area:focus-within {
+  border-color: var(--jg-primary);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1), var(--jg-shadow-md);
+}
+
+.jg-textarea-wrap {
+  position: relative;
+  padding: 16px 18px 12px;
+}
+
+.jg-prompt-input {
+  width: 100%;
+  min-height: 100px;
+  max-height: 240px;
+  border: none;
+  outline: none;
+  resize: vertical;
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--jg-text);
+  background: transparent;
+  font-family: inherit;
+
+  &::placeholder {
+    color: var(--jg-text-muted);
+  }
+}
+
+.jg-placeholder-hint {
+  position: absolute;
+  top: 50%;
+  right: 24px;
+  transform: translateY(-50%);
+  font-size: 13px;
+  color: var(--jg-text-muted);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ====== Toolbar ====== */
+.jg-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-top: 1px solid var(--jg-bg-secondary);
+  background: var(--jg-bg-secondary);
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.jg-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.jg-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.jg-tool-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--jg-border);
+  background: var(--jg-bg);
+  font-size: 13px;
+  color: var(--jg-text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+
+  &:hover {
+    border-color: var(--jg-primary);
+    color: var(--jg-primary);
+    background: rgba(99, 102, 241, 0.04);
+  }
+
+  &.model-btn {
+    background: linear-gradient(135deg, #faf5ff, #ede9fe);
+    border-color: #c4b5fd;
+    color: #7c3aed;
+    font-weight: 500;
+    
+    &:hover {
+      border-color: #a78bfa;
+      background: linear-gradient(135deg, #f3e8ff, #e9d5ff);
+    }
+  }
+
+  .anticon {
+    font-size: 13px;
+  }
+}
+
+/* ====== @ Button ====== */
+.jg-tool-btn .anticon-at {
+  font-weight: 700;
+  font-size: 15px !important;
+}
+
+/* ====== Send Button ====== */
+.jg-send-btn {
+  height: 36px;
+  padding: 0 20px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--jg-primary), #8b5cf6);
+  border: none;
+  font-weight: 600;
+  font-size: 14px;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.35);
+
+  &:hover:not(:disabled) {
+    background: linear-gradient(135deg, var(--jg-primary-hover), #7c3aed) !important;
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.45);
+    transform: translateY(-1px);
+  }
+  
+  &:active:not(:disabled) {
+    transform: translateY(0);
+  }
+}
+
+/* ====== Char Count ====== */
+.jg-char-count {
+  font-size: 12px;
+  color: var(--jg-text-muted);
+  white-space: nowrap;
+  user-select: none;
+  
+  .sep {
+    color: var(--jg-border);
+    margin: 0 2px;
+  }
+
+  &.warning {
+    color: #f59e0b;
+    font-weight: 600;
+  }
+}
+
+/* ====== Progress Area ====== */
+.jg-progress-area {
+  margin-top: 16px;
+  padding: 16px 20px;
+  background: linear-gradient(135deg, #eef2ff, #fae8ff);
+  border-radius: var(--jg-radius);
+  text-align: center;
+}
+
+/* ========================================
+   全能参考面板 (Omni Reference Panel)
+   ======================================== */
+
+.omni-ref-panel {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.omni-mode-btn {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--jg-border);
+  background: var(--jg-bg);
+  font-size: 13px;
+  color: var(--jg-text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+
+  .anticon {
+    color: inherit;
+  }
+
+  &.active {
+    background: linear-gradient(135deg, #ecfdf5, #d1fae5);
+    border-color: #6ee7b7;
+    color: #059669;
+    font-weight: 500;
+  }
+
+  &:hover {
+    border-color: var(--jg-primary);
+  }
+}
+
+.omni-ref-content {
+  margin-top: 8px;
+  padding: 14px;
+  background: var(--jg-bg);
+  border: 1px solid var(--jg-border);
+  border-radius: var(--jg-radius-sm);
+  box-shadow: var(--jg-shadow);
+  animation: slideDown 0.2s ease;
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.omni-ref-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.omni-ref-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--jg-text);
+}
+
+.omni-ref-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+  gap: 8px;
+}
+
+.omni-ref-item {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: all 0.15s ease;
+  background: var(--jg-bg-secondary);
+
+  &:hover {
+    border-color: var(--jg-primary);
+    transform: scale(1.03);
+    box-shadow: var(--jg-shadow-md);
+
+    .omni-ref-item-overlay {
+      opacity: 1;
+    }
+  }
+
+  &.placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px dashed var(--jg-border);
+    background: transparent;
+    cursor: pointer;
+
+    &:hover {
+      border-color: var(--jg-primary);
+      background: rgba(99, 102, 241, 0.04);
+    }
+  }
+
+  &[data-type='image'] {
+    /* 图片默认样式 */
+  }
+
+  &[data-type='video'] {
+    background: linear-gradient(135deg, #ecfccb, #d9f99d);
+  }
+
+  &[data-type='audio'] {
+    background: linear-gradient(135deg, #fef3c7, #fde68a);
+  }
+
+  &[data-type='character'] {
+    background: linear-gradient(135deg, #ede9fe, #ddd6fe);
+  }
+}
+
+.omni-ref-item-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+
+  img, .ant-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+}
+
+.omni-ref-video-thumb,
+.omni-ref-audio-thumb,
+.omni-ref-char-thumb {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #059669; /* video green */
+}
+
+.omni-ref-audio-thumb {
+  color: #d97706; /* audio amber */
+}
+
+.omni-ref-char-thumb {
+  color: #7c3aed; /* character purple */
+}
+
+.omni-ref-item-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 6px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.omni-ref-item-name {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 2px 4px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 9px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.omni-ref-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 28px 20px;
+  border: 2px dashed var(--jg-border);
+  border-radius: var(--jg-radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+
+  &:hover {
+    border-color: var(--jg-primary);
+    background: rgba(99, 102, 241, 0.03);
+  }
+}
+
+.omni-ref-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: linear-gradient(135deg, #eff6ff, #dbeafe);
+  border-radius: 6px;
+  font-size: 11.5px;
+  color: #3b82f6;
+  line-height: 1.5;
+
+  .anticon {
+    color: #2563eb;
+    flex-shrink: 0;
+  }
+}
+
+/* ========================================
+   响应式适配
+   ======================================== */
+
+@media (max-width: 640px) {
+  .jimeng-generator-v2 {
+    max-width: 100%;
+  }
+
+  .jg-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .jg-toolbar-left {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .jg-toolbar-right {
+    margin-left: 0;
+    justify-content: flex-end;
+    margin-top: 8px;
+  }
+
+  .omni-ref-list {
+    grid-template-columns: repeat(auto-fill, minmax(70px, 1fr));
+  }
+
+  .jg-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+}

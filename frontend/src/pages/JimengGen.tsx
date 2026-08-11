@@ -1,476 +1,494 @@
-import { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
+import { message, Card, Tabs, TabsProps, Spin, Image, Space, Tag, Typography, Empty, Button, Modal, Result, Alert } from 'antd';
 import {
-  Alert,
-  Button,
-  Card,
-  Col,
-  Form,
-  Image,
-  Input,
-  InputNumber,
-  Progress,
-  Row,
-  Select,
-  Space,
-  Tabs,
-  Tag,
-  Typography,
-  message,
-} from 'antd';
-import { ClearOutlined, ThunderboltOutlined } from '@ant-design/icons';
-import {
-  getJimengModels,
-  listPrompts,
-  type JimengModel,
-  type Prompt,
-} from '../api/pipeline';
-import { useTaskSession } from '../context/TaskSession';
-import { ImageSourcePicker, type ImageSourceValue } from '../components/SourcePickers';
-import { api } from '../api/client';
+  VideoCameraOutlined, PictureOutlined, CheckCircleOutlined,
+  CloseCircleOutlined, LoadingOutlined, DownloadOutlined, ReloadOutlined
+} from '@ant-design/icons';
+import JimengGeneratorV2, { VideoGenParams, ImageGenParams, ReferenceItem } from '../components/JimengGeneratorV2';
+import '../components/JimengGeneratorV2.css';
 
-/**
- * 即梦生成（图像 / 视频）—— 登录用户可见。
- *
- * 与三阶段流水线同一套任务体系：
- *  - 提交即创建 Task 记录，后台异步执行（不阻塞前端）
- *  - 进度/结果通过全局 TaskSession 持久化（刷新/切页不丢）
- *  - 接入共享提示词库、形象库、本地上传
- *  - 生成结果自动入库（media 表）
- */
+import * as JMApi from '../api/jimeng';
+
+/* ================= 类型 ================= */
+
+interface JimengTask {
+  id: string;
+  type: 'image' | 'video';
+  status: 'pending' | 'processing' | 'done' | 'failed' | 'timeout';
+  prompt: string;
+  /** 图片结果 */
+  images?: string[];
+  /** 视频结果 */
+  videoUrl?: string;
+  coverUrl?: string;
+  error?: string;
+  createdAt: Date;
+}
+
+/* ================= 主页面 ================= */
+
 export default function JimengGen() {
-  const [models, setModels] = useState<{ image?: JimengModel[]; video?: JimengModel[] }>({});
-  const [tab, setTab] = useState<'image' | 'video'>('image');
-  const [prompts, setPrompts] = useState<Prompt[]>([]);
-  // 新用户适配：超级管理员且即梦账号池为空时，引导先导入账号
-  const [needAccount, setNeedAccount] = useState(false);
+  const [tasks, setTasks] = useState<JimengTask[]>([]);
+  const [activeTab, setActiveTab] = useState<'video' | 'image'>('video');
+  const [generating, setGenerating] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [accounts, setAccounts] = useState<JMApi.JimengAccount[]>([]);
+  const [accountsLoading, setAccountsLoading] = useState(true);
+  const [userCredits, setUserCredits] = useState<number | undefined>(undefined);
+
+  // 加载账号列表和积分
   useEffect(() => {
-    api
-      .get('/auth/me')
-      .then((r: any) => (r?.data?.role === 'super_admin' ? api.get('/admin/jimeng-accounts') : null))
-      .then((r: any) => {
-        if (!r) return;
-        const d = r?.data?.data;
-        const arr = Array.isArray(d) ? d : d?.data || [];
-        if (arr.length === 0) setNeedAccount(true);
-      })
-      .catch(() => {});
-  }, []);
-  const { get: getSession, startJimengImage, startJimengVideo, clear, getDraft, patchDraft, clearDraft } =
-    useTaskSession();
-
-  const imageSess = getSession('jimeng_image');
-  const videoSess = getSession('jimeng_video');
-  const imageDraft = getDraft('jimeng_image');
-  const videoDraft = getDraft('jimeng_video');
-
-  const [imageForm] = Form.useForm();
-  const [videoForm] = Form.useForm();
-
-  // 参考图 / 首尾帧 状态
-  const [imgRef, setImgRef] = useState<ImageSourceValue>(imageDraft.image || {});
-  const [firstFrame, setFirstFrame] = useState<ImageSourceValue>(videoDraft.image || {});
-  const [endFrame, setEndFrame] = useState<ImageSourceValue>(videoDraft.extra?.endFrame || {});
-
-  useEffect(() => {
-    getJimengModels()
-      .then((r) => setModels(r || {}))
-      .catch(() => {});
-    listPrompts('action')
-      .then(setPrompts)
-      .catch(() => {});
+    loadAccounts();
+    loadCredits();
   }, []);
 
-  const imageOptions = (models.image || []).map((m) => ({ value: m.id, label: m.name }));
-  const videoOptions = (models.video || []).map((m) => ({ value: m.id, label: m.name }));
-
-  const setImgRefAndSave = (v: ImageSourceValue) => {
-    setImgRef(v);
-    patchDraft('jimeng_image', { image: v });
-  };
-  const setFirstFrameAndSave = (v: ImageSourceValue) => {
-    setFirstFrame(v);
-    patchDraft('jimeng_video', { image: v });
-  };
-  const setEndFrameAndSave = (v: ImageSourceValue) => {
-    setEndFrame(v);
-    patchDraft('jimeng_video', { extra: { ...videoDraft.extra, endFrame: v } });
-  };
-
-  /* ---------------- 图像生成 ---------------- */
-
-  const onGenImage = async () => {
-    const v = await imageForm.validateFields();
-    try {
-      await startJimengImage({
-        model: v.model,
-        prompt: v.prompt,
-        ratio: v.ratio,
-        resolution: v.resolution,
-        sampleStrength: v.sampleStrength,
-        negativePrompt: v.negativePrompt,
-        filePath: v.filePath,
-        imageUploadId: imgRef.imageUploadId,
-        characterId: imgRef.characterId,
-        characterImageId: imgRef.characterImageId,
-        saveToCharacterId: v.saveToCharacterId,
-        newCharacterName: v.newCharacterName,
-        newCharacterTags: v.newCharacterTags,
-      });
-      message.success('已提交即梦图像生成任务');
-    } catch (e: any) {
-      message.error(e?.response?.data?.message || '提交失败');
-    }
-  };
-
-  /* ---------------- 视频生成 ---------------- */
-
-  const onGenVideo = async () => {
-    const v = await videoForm.validateFields();
-    try {
-      await startJimengVideo({
-        model: v.model,
-        prompt: v.prompt,
-        ratio: v.ratio,
-        resolution: v.resolution,
-        duration: v.duration,
-        firstFrameUploadId: firstFrame.imageUploadId,
-        firstFrameCharacterId: firstFrame.characterId,
-        endFrameUploadId: endFrame.imageUploadId,
-        endFrameCharacterId: endFrame.characterId,
-      });
-      message.success('已提交即梦视频生成任务');
-    } catch (e: any) {
-      message.error(e?.response?.data?.message || '提交失败');
-    }
-  };
-
-  /* ---------------- 状态提示 ---------------- */
-
-  const imageRunning = imageSess.status === 'pending' || imageSess.status === 'running';
-  const videoRunning = videoSess.status === 'pending' || videoSess.status === 'running';
-
-  const imageStatusRef = useRef<string | undefined>(undefined);
-  const videoStatusRef = useRef<string | undefined>(undefined);
+  // 轮询进行中的任务
   useEffect(() => {
-    if (imageSess.status && imageSess.status !== imageStatusRef.current) {
-      if (imageSess.status === 'success') message.success('即梦图像生成完成');
-      else if (imageSess.status === 'failed') message.error(imageSess.error || '生成失败');
-      imageStatusRef.current = imageSess.status;
-    }
-  }, [imageSess.status, imageSess.error]);
-  useEffect(() => {
-    if (videoSess.status && videoSess.status !== videoStatusRef.current) {
-      if (videoSess.status === 'success') message.success('即梦视频生成完成');
-      else if (videoSess.status === 'failed') message.error(videoSess.error || '生成失败');
-      videoStatusRef.current = videoSess.status;
-    }
-  }, [videoSess.status, videoSess.error]);
+    const pending = tasks.filter((t) => t.status === 'pending' || t.status === 'processing');
+    if (pending.length === 0) return;
 
-  const resetImageAll = () => {
-    imageForm.resetFields();
-    setImgRef({});
-    clearDraft('jimeng_image');
-    clear('jimeng_image');
-    imageStatusRef.current = undefined;
-  };
-  const resetVideoAll = () => {
-    videoForm.resetFields();
-    setFirstFrame({});
-    setEndFrame({});
-    clearDraft('jimeng_video');
-    clear('jimeng_video');
-    videoStatusRef.current = undefined;
-  };
+    const timer = setTimeout(async () => {
+      for (const task of pending) {
+        try {
+          let result;
+          if (task.type === 'video') {
+            result = await JMApi.pollVideoTask(task.id);
+            if (result.done) {
+              updateTask(task.id, {
+                status: 'done',
+                videoUrl: result.videoUrl,
+                coverUrl: result.coverUrl,
+              });
+              setProgress(100);
+              setGenerating(false);
+              message.success('视频生成完成！');
+            }
+          } else {
+            result = await JMApi.pollImageTask(task.id);
+            if (result.done) {
+              updateTask(task.id, {
+                status: 'done',
+                images: result.images,
+              });
+              setProgress(100);
+              setGenerating(false);
+              message.success('图片生成完成！');
+            }
+          }
+
+          // 更新进度（模拟）
+          setProgress(prev => Math.min(prev + 5, 90));
+        } catch (e: any) {
+          updateTask(task.id, { status: 'failed', error: e?.message || '查询失败' });
+        }
+      }
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, [tasks]);
+
+  /* ========== 数据加载 ========== */
+
+  async function loadAccounts() {
+    try {
+      const list = await JMApi.listAccounts();
+      setAccounts(list);
+    } catch {
+      // 接口失败时保持空数组，模块不白屏
+    } finally {
+      setAccountsLoading(false);
+    }
+  }
+
+  async function loadCredits() {
+    try {
+      const info = await JMApi.getAccountSummary();
+      setUserCredits(info.totalCredits);
+    } catch {
+      // 积分加载失败不阻塞使用
+    }
+  }
+
+  /* ========== 任务管理 ========== */
+
+  function addTask(partial: Omit<JimengTask, 'id' | 'createdAt'>) {
+    const task: JimengTask = {
+      ...partial,
+      id: `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      createdAt: new Date(),
+    };
+    setTasks((prev) => [task, ...prev]);
+    return task.id;
+  }
+
+  function updateTask(id: string, patch: Partial<JimengTask>) {
+    setTasks((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, ...patch } : t)),
+    );
+  }
+
+  /* ========== 上传处理 ========== */
+
+  const handleUploadFile = useCallback(async (
+    category: 'image' | 'video' | 'audio',
+    file: File
+  ): Promise<{ id: string; url: string }> => {
+    // 使用即梦上传接口或通用文件上传接口
+    try {
+      // 尝试使用即梦的上传接口
+      const uploadCategory = category === 'video' ? 'video' : category === 'audio' ? 'audio' : 'image';
+      const result = await JMApi.uploadToJimeng(file, uploadCategory as any);
+      return { id: result.id || 'uploaded', url: result.url };
+    } catch {
+      // 回退到通用上传
+      const { uploadFile } = require('../api/pipeline');
+      const up = await uploadFile(category, file);
+      return { id: up.id, url: up.url };
+    }
+  }, []);
+
+  /* ========== 提交生成 ========== */
+
+  const handleSubmitVideo = useCallback(async (params: VideoGenParams) => {
+    if (!params.prompt.trim()) {
+      message.warning('请输入提示词');
+      return;
+    }
+
+    setGenerating(true);
+    setProgress(10);
+
+    try {
+      // 构建参考素材列表（用于全能参考）
+      const referenceUploadIds = params.references
+        .filter(r => r.uploadId)
+        .map(r => r.uploadId!);
+      
+      // 如果有参考素材，将它们作为额外参数传递
+      const extraParams: any = {};
+      if (params.mode !== 'off' && params.references.length > 0) {
+        extraParams.references = params.references.map(r => ({
+          type: r.type,
+          uploadId: r.uploadId,
+          characterId: r.characterId,
+          mentionLabel: r.mentionLabel,
+          url: r.url,
+        }));
+        extraParams.referenceMode = params.mode;
+      }
+
+      // 首帧/尾帧：如果有图片类型参考素材，可以自动用作首帧
+      let firstFrameId = params.firstFrameUploadId;
+      let endFrameId = params.endFrameUploadId;
+
+      // 如果没有指定首帧但有图片参考，用第一张图作为首帧
+      if (!firstFrameId && params.references.length > 0) {
+        const firstImageRef = params.references.find(r => r.type === 'image');
+        if (firstImageRef?.uploadId) {
+          firstFrameId = firstImageRef.uploadId;
+        }
+      }
+
+      const taskId = await JMApi.startJimengVideo({
+        model: params.model,
+        prompt: params.prompt,
+        ratio: params.ratio,
+        resolution: params.resolution,
+        duration: params.duration,
+        firstFrameUploadId: firstFrameId,
+        endFrameUploadId: endFrameId,
+        ...extraParams,
+      });
+
+      addTask({
+        type: 'video',
+        status: 'pending',
+        prompt: params.prompt,
+      });
+
+      message.info('视频生成任务已提交，请等待...');
+      setProgress(20);
+    } catch (e: any) {
+      console.error('[JimengGen] video gen error:', e);
+      message.error(e?.response?.data?.message || e?.message || '视频生成失败');
+      setGenerating(false);
+      setProgress(0);
+    }
+  }, []);
+
+  const handleSubmitImage = useCallback(async (params: ImageGenParams) => {
+    if (!params.prompt.trim()) {
+      message.warning('请输入提示词');
+      return;
+    }
+
+    setGenerating(true);
+    setProgress(10);
+
+    try {
+      const extraParams: any = {};
+      if (params.references.length > 0) {
+        extraParams.references = params.references.map(r => ({
+          type: r.type,
+          uploadId: r.uploadId,
+          characterId: r.characterId,
+          mentionLabel: r.mentionLabel,
+          url: r.url,
+        }));
+      }
+
+      // 如果有图片参考，使用第一张作为参考图
+      let refUploadId: string | undefined;
+      const firstImageRef = params.references.find(r => r.type === 'image');
+      if (firstImageRef?.uploadId) {
+        refUploadId = firstImageRef.uploadId;
+      }
+
+      const taskId = await JMApi.startJimengImage({
+        model: params.model,
+        prompt: params.prompt,
+        ratio: params.ratio,
+        imageUploadId: refUploadId,
+        ...extraParams,
+      });
+
+      addTask({
+        type: 'image',
+        status: 'pending',
+        prompt: params.prompt,
+      });
+
+      message.info('图片生成任务已提交，请等待...');
+      setProgress(20);
+    } catch (e: any) {
+      console.error('[JimengGen] image gen error:', e);
+      message.error(e?.response?.data?.message || e?.message || '图片生成失败');
+      setGenerating(false);
+      setProgress(0);
+    }
+  }, []);
+
+  /* ========== 渲染 ========== */
+
+  const tabItems: TabsProps['items'] = [
+    {
+      key: 'generate',
+      label: (
+        <Space>
+          <VideoCameraOutlined />
+          <span>创作</span>
+        </Space>
+      ),
+      children: (
+        <div className="jimeng-gen-create">
+          {/* 账号池为空时的引导横幅（健壮性：避免"功能消失"错觉） */}
+          {!accountsLoading && accounts.length === 0 && (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 16, borderRadius: 10 }}
+              message="尚未导入即梦账号"
+              description={
+                <span>
+                  即梦生成需要可用的账号。请前往「即梦账号池」导入已登录即梦网页的 Cookie（sessionid），
+                  你导入的账号会出现在这里。导入后即可正常生成视频/图片。
+                </span>
+              }
+            />
+          )}
+
+          {/* 新版即梦风格生成器 */}
+          <JimengGeneratorV2
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
+            onSubmitVideo={handleSubmitVideo}
+            onSubmitImage={handleSubmitImage}
+            onUploadFile={handleUploadFile}
+            characters={[]}
+            generating={generating}
+            progress={progress}
+            userCredits={userCredits}
+          />
+        </div>
+      ),
+    },
+    {
+      key: 'results',
+      label: (
+        <Space>
+          <PictureOutlined />
+          <span>结果</span>
+          {tasks.filter(t => t.status === 'done').length > 0 && (
+            <Tag color="blue" style={{ marginLeft: 4 }}>{tasks.filter(t => t.status === 'done').length}</Tag>
+          )}
+        </Space>
+      ),
+      children: (
+        <div className="jimeng-gen-results">
+          {tasks.length === 0 ? (
+            <Empty description="暂无生成记录，开始创作吧！" />
+          ) : (
+            <div className="task-list">
+              {tasks.map((task) => (
+                <Card key={task.id} size="small" className="task-card" hoverable>
+                  <div className="task-header">
+                    <Space>
+                      <Tag color={task.type === 'video' ? 'purple' : 'blue'}>
+                        {task.type === 'video' ? '视频' : '图片'}
+                      </Tag>
+                      <Typography.Text ellipsis style={{ maxWidth: 360 }}>
+                        {task.prompt}
+                      </Typography.Text>
+                    </Space>
+                    <Tag
+                      color={
+                        task.status === 'done'
+                          ? 'success'
+                          : task.status === 'failed'
+                          ? 'error'
+                          : task.status === 'processing'
+                          ? 'processing'
+                          : 'default'
+                      }
+                    >
+                      {task.status === 'done' && <CheckCircleOutlined />}{' '}
+                      {task.status === 'failed' && <CloseCircleOutlined />}{' '}
+                      {task.status === 'processing' && <LoadingOutlined />}{' '}
+                      {{ pending: '排队中', processing: '生成中', done: '已完成', failed: '失败', timeout: '超时' }[task.status]}
+                    </Tag>
+                  </div>
+
+                  {(task.status === 'processing' || task.status === 'pending') && (
+                    <div style={{ marginTop: 8 }}>
+                      <Spin size="small" /> 正在处理...
+                    </div>
+                  )}
+
+                  {task.status === 'done' && task.type === 'image' && task.images && (
+                    <div className="result-images">
+                      {task.images.map((url, idx) => (
+                        <Image key={idx} src={url} className="result-img" />
+                      ))}
+                    </div>
+                  )}
+
+                  {task.status === 'done' && task.type === 'video' && task.videoUrl && (
+                    <div className="result-video">
+                      {task.coverUrl && <Image src={task.coverUrl} className="video-cover" preview={false} />}
+                      <video src={task.videoUrl} controls className="video-player" />
+                      <Button
+                        type="primary"
+                        size="small"
+                        icon={<DownloadOutlined />}
+                        href={task.videoUrl}
+                        target="_blank"
+                        style={{ marginTop: 6 }}
+                      >
+                        下载视频
+                      </Button>
+                    </div>
+                  )}
+
+                  {task.status === 'failed' && task.error && (
+                    <Typography.Text type="danger" style={{ fontSize: 12, marginTop: 4 }}>
+                      {task.error}
+                    </Typography.Text>
+                  )}
+                </Card>
+              ))}
+            </div>
+          )}
+        </div>
+      ),
+    },
+  ];
 
   return (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      <Alert
-        type="info"
-        showIcon
-        message="即梦生成（图像 / 视频）"
-        description="调用本地号池（按积分加权选号）。任务后台异步执行，切换页面不会中断，刷新不丢数据。结果自动存入素材库。"
-      />
-      {needAccount && (
-        <Alert
-          type="warning"
-          showIcon
-          closable
-          message="即梦账号池暂无账号"
-          description={
-            <>
-              即梦生成需要可用的 cookie 账号。请先到{' '}
-              <a href="#/jimeng-accounts">即梦账号池</a>{' '}
-              导入即梦 Cookie；否则提交的任务会因无可用账号而失败。
-            </>
+    <div className="jimeng-gen-page">
+      <Tabs defaultActiveKey="generate" items={tabItems} size="middle" className="jimeng-tabs-main" />
+
+      <style>{`
+        .jimeng-gen-page {
+          max-width: 920px;
+          margin: 0 auto;
+          padding: 16px 20px;
+        }
+
+        .jimeng-gen-create {
+          margin-bottom: 24px;
+        }
+
+        .jimeng-gen-results {
+          min-height: 200px;
+        }
+
+        .task-list {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+
+        .task-card {
+          border-radius: 10px;
+        }
+
+        .task-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+        }
+
+        .result-images {
+          display: flex;
+          gap: 8px;
+          margin-top: 10px;
+          flex-wrap: wrap;
+        }
+
+        .result-img {
+          width: 160px;
+          height: 160px;
+          object-fit: cover;
+          border-radius: 8px;
+          border: 1px solid #f0f0f0;
+        }
+
+        .result-video {
+          margin-top: 10px;
+          text-align: center;
+        }
+
+        .video-cover {
+          width: 240px;
+          height: 135px;
+          object-fit: cover;
+          border-radius: 8px;
+          margin-bottom: 6px;
+        }
+
+        .video-player {
+          width: 100%;
+          max-width: 400px;
+          border-radius: 8px;
+          max-height: 260px;
+        }
+
+        .jimeng-tabs-main > .ant-tabs-nav {
+          margin-bottom: 18px;
+        }
+
+        @media (max-width: 640px) {
+          .jimeng-gen-page {
+            padding: 10px 12px;
           }
-        />
-      )}
-
-      <Card>
-        <Tabs
-          activeKey={tab}
-          onChange={(k) => setTab(k as 'image' | 'video')}
-          items={[
-            {
-              key: 'image',
-              label: (
-                <span>
-                  <ThunderboltOutlined /> 图像生成
-                  {imageRunning && <Tag color="processing" style={{ marginLeft: 6 }}>进行中</Tag>}
-                </span>
-              ),
-              children: (
-                <Form
-                  form={imageForm}
-                  layout="vertical"
-                  initialValues={{
-                    resolution: '2k',
-                    ratio: '1:1',
-                    ...imageDraft.form,
-                  }}
-                  onValuesChange={(_c, all) => patchDraft('jimeng_image', { form: all })}
-                >
-                  {/* 提示词 + 提示词库 */}
-                  <Form.Item label="提示词" required>
-                    <Space.Compact style={{ width: '100%' }}>
-                      <Form.Item name="prompt" noStyle rules={[{ required: true, message: '请填写提示词' }]}>
-                        <Input.TextArea rows={3} placeholder="描述要生成的图像" />
-                      </Form.Item>
-                    </Space.Compact>
-                    <Select
-                      allowClear
-                      showSearch
-                      style={{ width: '100%', marginTop: 8 }}
-                      placeholder="从提示词库中选择（可选，会覆盖上方输入）"
-                      optionFilterProp="label"
-                      onChange={(id) => {
-                        const p = prompts.find((x) => x.id === id);
-                        if (p) {
-                          imageForm.setFieldValue('prompt', p.content);
-                          patchDraft('jimeng_image', { form: { ...imageForm.getFieldsValue(), prompt: p.content } });
-                        }
-                      }}
-                      options={prompts.map((p) => ({
-                        value: p.id,
-                        label: `${p.title}${p.category ? ` [${p.category}]` : ''}`,
-                      }))}
-                    />
-                  </Form.Item>
-
-                  <Form.Item name="model" label="模型">
-                    <Select showSearch allowClear placeholder="默认模型" options={imageOptions} />
-                  </Form.Item>
-
-                  <Row gutter={16}>
-                    <Col xs={12} md={6}>
-                      <Form.Item name="ratio" label="比例">
-                        <Select
-                          options={[
-                            { value: '1:1', label: '1:1' },
-                            { value: '3:4', label: '3:4' },
-                            { value: '4:3', label: '4:3' },
-                            { value: '9:16', label: '9:16' },
-                            { value: '16:9', label: '16:9' },
-                          ]}
-                        />
-                      </Form.Item>
-                    </Col>
-                    <Col xs={12} md={6}>
-                      <Form.Item name="resolution" label="分辨率">
-                        <Select
-                          options={[
-                            { value: '1k', label: '1K' },
-                            { value: '2k', label: '2K' },
-                          ]}
-                        />
-                      </Form.Item>
-                    </Col>
-                    <Col xs={24} md={12}>
-                      <Form.Item name="negativePrompt" label="反向提示词（可选）">
-                        <Input.TextArea rows={1} />
-                      </Form.Item>
-                    </Col>
-                  </Row>
-
-                  {/* 参考图来源 */}
-                  <Form.Item label="参考图（可选：本地上传 / 形象库 / URL）">
-                    <ImageSourcePicker value={imgRef} onChange={setImgRefAndSave} />
-                  </Form.Item>
-                  <Form.Item name="filePath" label="或输入图片 URL（可选）" extra="与上方来源三选一，远程 URL 或 base64">
-                    <Input placeholder="https://..." />
-                  </Form.Item>
-
-                  {/* 保存到形象库 */}
-                  <Form.Item label="生成结果保存到形象库（可选）">
-                    <Space direction="vertical" style={{ width: '100%' }}>
-                      <Form.Item name="saveToCharacterId" noStyle>
-                        <Input placeholder="已有形象 ID（可选）" />
-                      </Form.Item>
-                      <Form.Item name="newCharacterName" noStyle>
-                        <Input placeholder="或新建形象名称（可选）" />
-                      </Form.Item>
-                    </Space>
-                  </Form.Item>
-
-                  <Space>
-                    <Button type="primary" loading={imageRunning} onClick={onGenImage}>
-                      生成图像
-                    </Button>
-                    <Button icon={<ClearOutlined />} onClick={resetImageAll} disabled={imageRunning}>
-                      清空
-                    </Button>
-                    {imageSess.statusText && !imageRunning && (
-                      <Typography.Text type="secondary">{imageSess.statusText}</Typography.Text>
-                    )}
-                    {imageSess.results.length > 0 && !imageRunning && (
-                      <Button danger type="link" onClick={() => clear('jimeng_image')}>
-                        重新生成
-                      </Button>
-                    )}
-                  </Space>
-
-                  {imageRunning && <Progress percent={100} status="active" showInfo={false} style={{ marginTop: 12 }} />}
-                </Form>
-              ),
-            },
-            {
-              key: 'video',
-              label: (
-                <span>
-                  <ThunderboltOutlined /> 视频生成
-                  {videoRunning && <Tag color="processing" style={{ marginLeft: 6 }}>进行中</Tag>}
-                </span>
-              ),
-              children: (
-                <Form
-                  form={videoForm}
-                  layout="vertical"
-                  initialValues={{
-                    resolution: '1080p',
-                    ratio: '16:9',
-                    duration: 5,
-                    ...videoDraft.form,
-                  }}
-                  onValuesChange={(_c, all) => patchDraft('jimeng_video', { form: all })}
-                >
-                  <Form.Item label="提示词" required>
-                    <Form.Item name="prompt" noStyle rules={[{ required: true, message: '请填写提示词' }]}>
-                      <Input.TextArea rows={3} placeholder="描述要生成的视频" />
-                    </Form.Item>
-                    <Select
-                      allowClear
-                      showSearch
-                      style={{ width: '100%', marginTop: 8 }}
-                      placeholder="从提示词库中选择（可选，会覆盖上方输入）"
-                      optionFilterProp="label"
-                      onChange={(id) => {
-                        const p = prompts.find((x) => x.id === id);
-                        if (p) {
-                          videoForm.setFieldValue('prompt', p.content);
-                          patchDraft('jimeng_video', { form: { ...videoForm.getFieldsValue(), prompt: p.content } });
-                        }
-                      }}
-                      options={prompts.map((p) => ({
-                        value: p.id,
-                        label: `${p.title}${p.category ? ` [${p.category}]` : ''}`,
-                      }))}
-                    />
-                  </Form.Item>
-
-                  <Form.Item name="model" label="模型">
-                    <Select showSearch allowClear placeholder="默认模型" options={videoOptions} />
-                  </Form.Item>
-
-                  <Row gutter={16}>
-                    <Col xs={12} md={6}>
-                      <Form.Item name="ratio" label="比例">
-                        <Select
-                          options={[
-                            { value: '1:1', label: '1:1' },
-                            { value: '16:9', label: '16:9' },
-                            { value: '9:16', label: '9:16' },
-                            { value: '4:3', label: '4:3' },
-                            { value: '3:4', label: '3:4' },
-                            { value: '21:9', label: '21:9' },
-                          ]}
-                        />
-                      </Form.Item>
-                    </Col>
-                    <Col xs={12} md={6}>
-                      <Form.Item name="resolution" label="分辨率">
-                        <Select
-                          options={[
-                            { value: '480p', label: '480P' },
-                            { value: '720p', label: '720P' },
-                            { value: '1080p', label: '1080P' },
-                            { value: '4k', label: '4K' },
-                          ]}
-                        />
-                      </Form.Item>
-                    </Col>
-                    <Col xs={12} md={6}>
-                      <Form.Item name="duration" label="时长(秒)">
-                        <InputNumber min={5} max={10} style={{ width: '100%' }} />
-                      </Form.Item>
-                    </Col>
-                  </Row>
-
-                  {/* 首帧 */}
-                  <Form.Item label="首帧图（可选：本地上传 / 形象库）">
-                    <ImageSourcePicker value={firstFrame} onChange={setFirstFrameAndSave} allowPickImage={false} />
-                  </Form.Item>
-
-                  {/* 尾帧 */}
-                  <Form.Item label="尾帧图（可选：本地上传 / 形象库）">
-                    <ImageSourcePicker value={endFrame} onChange={setEndFrameAndSave} allowPickImage={false} />
-                  </Form.Item>
-
-                  <Space>
-                    <Button type="primary" loading={videoRunning} onClick={onGenVideo}>
-                      生成视频
-                    </Button>
-                    <Button icon={<ClearOutlined />} onClick={resetVideoAll} disabled={videoRunning}>
-                      清空
-                    </Button>
-                    {videoSess.statusText && !videoRunning && (
-                      <Typography.Text type="secondary">{videoSess.statusText}</Typography.Text>
-                    )}
-                    {videoSess.results.length > 0 && !videoRunning && (
-                      <Button danger type="link" onClick={() => clear('jimeng_video')}>
-                        重新生成
-                      </Button>
-                    )}
-                  </Space>
-
-                  {videoRunning && <Progress percent={100} status="active" showInfo={false} style={{ marginTop: 12 }} />}
-                </Form>
-              ),
-            },
-          ]}
-        />
-      </Card>
-
-      {/* 生成结果 */}
-      {tab === 'image' && imageSess.results.length > 0 && (
-        <Card title="图像生成结果" extra={<Tag color="green">{imageSess.results.length} 张</Tag>}>
-          <Image.PreviewGroup>
-            <Space wrap>
-              {imageSess.results.map((u, i) => (
-                <Image key={i} src={u} width={200} style={{ borderRadius: 6 }} />
-              ))}
-            </Space>
-          </Image.PreviewGroup>
-        </Card>
-      )}
-      {tab === 'video' && videoSess.results.length > 0 && (
-        <Card title="视频生成结果" extra={<Tag color="green">{videoSess.results.length} 个</Tag>}>
-          <Space direction="vertical" style={{ width: '100%' }}>
-            {videoSess.results.map((u, i) => (
-              <video key={i} src={u} controls style={{ width: '100%', maxWidth: 640, borderRadius: 6 }} />
-            ))}
-          </Space>
-        </Card>
-      )}
-    </Space>
+          
+          .result-img {
+            width: 120px;
+            height: 120px;
+          }
+        }
+      `}</style>
+    </div>
   );
 }
