@@ -63,15 +63,34 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: false   # 未配置证书时不尝试签名，避免 CI 上签名崩溃
         run: npm run electron:build -- --config.directories.output=release --win --publish never
 
-      - name: List artifacts
+      # 健壮性：校验 exe 是否真实产出且非空
+      - name: Verify Windows artifact
         shell: bash
-        run: ls -la frontend/release/ || true
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(frontend/release/*Setup*.exe)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::未找到任何安装包产物，打包可能失败"
+            ls -la frontend/release/ || true
+            exit 1
+          fi
+          for f in "${files[@]}"; do
+            size=$(stat -c%s "$f" 2>/dev/null || stat -f%z "$f")
+            echo "产物: $f 大小: $size 字节"
+            if [ "$size" -lt 1048576 ]; then
+              echo "::error::安装包体积过小（<1MB），疑似损坏: $f"
+              exit 1
+            fi
+          done
+          echo "Windows 产物校验通过"
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-installer
           path: frontend/release/*Setup*.exe
+          if-no-files-found: error
 
   build-macos:
     name: Build macOS arm64 (Apple Silicon)
@@ -139,14 +158,38 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: false   # 未配置证书时不尝试自动发现签名身份，配合 identity:null 避免“empty password / frontend not a file”崩溃
         run: npm run electron:build -- --config.directories.output=release --mac --publish never
 
-      - name: List artifacts
-        run: ls -la frontend/release/ || true
+      # 健壮性：校验 dmg 是否真实产出且非空，避免“损坏/空安装包”被上传
+      - name: Verify macOS artifact
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          dmg=(frontend/release/*.dmg)
+          if [ ${#dmg[@]} -eq 0 ]; then
+            echo "::error::未找到任何 .dmg 产物，打包可能失败"
+            ls -la frontend/release/ || true
+            exit 1
+          fi
+          for f in "${dmg[@]}"; do
+            size=$(stat -f%z "$f" 2>/dev/null || stat -c%s "$f")
+            echo "产物: $f 大小: $size 字节"
+            if [ "$size" -lt 1048576 ]; then
+              echo "::error::dmg 体积过小（<1MB），疑似损坏或构建不完整: $f"
+              exit 1
+            fi
+            # 校验 dmg 文件头，确保是真正的 UDIF 磁盘镜像而非损坏/截断文件
+            if ! hdiutil imageinfo "$f" >/dev/null 2>&1; then
+              echo "::error::dmg 镜像校验失败（hdiutil 无法识别），文件已损坏: $f"
+              exit 1
+            fi
+          done
+          echo "macOS 产物校验通过"
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
         with:
           name: macos-installer
           path: frontend/release/*.dmg
+          if-no-files-found: error
 
   release:
     name: Publish GitHub Release
@@ -172,3 +215,29 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 健壮性：发布后做一次最小体积校验，若产物缺失/损坏直接失败报警，避免用户下载到坏包
+      - name: Post-release integrity check
+        if: always()
+        run: |
+          set -euo pipefail
+          fail=0
+          for f in artifacts/windows-installer/*Setup*.exe artifacts/macos-installer/*.dmg; do
+            if [ ! -f "$f" ]; then
+              echo "::warning::发布产物缺失: $f"
+              fail=1
+              continue
+            fi
+            size=$(stat -c%s "$f" 2>/dev/null || stat -f%z "$f")
+            if [ "$size" -lt 1048576 ]; then
+              echo "::error::发布产物体积异常（<1MB）: $f ($size 字节)"
+              fail=1
+            else
+              echo "OK 产物完整: $f ($size 字节)"
+            fi
+          done
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::存在不完整或损坏的发布产物，请检查构建日志"
+            exit 1
+          fi
+          echo "全部发布产物完整性校验通过"

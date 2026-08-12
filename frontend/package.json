@@ -35,7 +35,8 @@
     "appId": "com.aigen.panel",
     "productName": "AI生成面板",
     "directories": {
-      "output": "C:/Users/zhiao888/aigen-electron-build"
+      "output": "release",
+      "buildResources": "build"
     },
     "files": [
       "electron/**/*",
@@ -100,7 +101,11 @@
           ]
         }
       ],
-      "category": "public.app-category.productivity"
+      "category": "public.app-category.productivity",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "notarize": false,
+      "darkModeSupport": true
     },
     "dmg": {
       "title": "AI生成面板"

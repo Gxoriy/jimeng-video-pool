@@ -1,0 +1,28 @@
+[Unit]
+Description=AI 生成面板 (aigen-panel) 后端服务
+After=network.target postgresql.service
+# 若数据库不是本机 systemd 管理的 postgresql，可去掉 postgresql.service 依赖
+# After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=__WORKING_DIRECTORY__
+ExecStart=/usr/bin/node __WORKING_DIRECTORY__/dist/main.js
+Restart=always
+RestartSec=3
+# 生产环境通过 .env 提供配置（NODE_ENV=production 等）
+Environment=NODE_ENV=production
+# 以专用低权限用户运行
+User=__SERVICE_USER__
+# 限制权限，提升安全性
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=__WORKING_DIRECTORY__/data
+# 标准日志输出到 journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=aigen-panel
+
+[Install]
+WantedBy=multi-user.target

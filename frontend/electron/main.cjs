@@ -5,6 +5,11 @@ const fs = require('fs');
 
 let mainWindow;
 let backendProcess;
+let backendRestartCount = 0;
+const MAX_BACKEND_RESTART = 3;
+const BACKEND_MAX_STARTUP_MS = 30000;
+const BACKEND_POLL_INTERVAL_MS = 500;
+const BACKEND_HEALTH_PATH = '/health';
 
 /**
  * 获取后端可执行文件路径
@@ -51,7 +56,42 @@ function getBackendPath() {
 }
 
 /**
- * 启动后端服务
+ * 后端健康检查：探测后端是否已就绪（端口可连接 + 可选 /health 端点）
+ */
+function waitForBackend(port, onReady) {
+  const start = Date.now();
+  const tryOnce = () => {
+    const http = require('http');
+    const req = http.get(
+      { host: '127.0.0.1', port, path: BACKEND_HEALTH_PATH, timeout: 1500 },
+      (res) => {
+        res.resume();
+        if (res.statusCode < 500) {
+          onReady(true);
+        } else {
+          retry();
+        }
+      }
+    );
+    req.on('error', retry);
+    req.on('timeout', () => {
+      req.destroy();
+      retry();
+    });
+
+    function retry() {
+      if (Date.now() - start > BACKEND_MAX_STARTUP_MS) {
+        onReady(false);
+        return;
+      }
+      setTimeout(tryOnce, BACKEND_POLL_INTERVAL_MS);
+    }
+  };
+  tryOnce();
+}
+
+/**
+ * 启动后端服务（带崩溃自愈：异常退出时自动重启，最多 MAX_BACKEND_RESTART 次）
  */
 function startBackend() {
   const { cmd, args, cwd } = getBackendPath();
@@ -80,8 +120,22 @@ function startBackend() {
 
   backendProcess.on('exit', (code) => {
     console.log(`[Backend] 进程退出，代码: ${code}`);
-    if (code !== 0 && mainWindow) {
-      dialog.showErrorBox('后端异常退出', `后端服务已停止（退出码: ${code}）`);
+    // 非主动退出且还有重启额度 → 自动自愈重启
+    if (code !== 0 && !app.isQuiting) {
+      if (backendRestartCount < MAX_BACKEND_RESTART) {
+        backendRestartCount += 1;
+        console.log(`[Backend] 检测到异常退出，准备第 ${backendRestartCount} 次自愈重启...`);
+        setTimeout(() => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('backend-status', { restarting: true });
+          }
+          startBackend();
+        }, 1000);
+        return;
+      }
+      if (mainWindow) {
+        dialog.showErrorBox('后端异常退出', `后端服务多次重启失败（退出码: ${code}），请检查日志。`);
+      }
     }
   });
 }
@@ -151,7 +205,11 @@ function createWindow() {
 function gracefulShutdown() {
   if (backendProcess) {
     console.log('[Electron] 正在关闭后端服务...');
-    backendProcess.kill('SIGTERM');
+    try {
+      backendProcess.kill('SIGTERM');
+    } catch {
+      /* 忽略，进程可能已退出 */
+    }
     backendProcess = null;
   }
 }
@@ -159,13 +217,23 @@ function gracefulShutdown() {
 // ============ Electron 生命周期 ============
 
 app.whenReady().then(() => {
-  // 先启动后端，等几秒后再打开窗口
+  // 先启动后端，再用健康检查轮询等待其就绪，就绪后再创建窗口
   startBackend();
 
-  // 等待后端启动
-  setTimeout(() => {
-    createWindow();
-  }, 2000);
+  const port = getPort();
+  waitForBackend(port, (ready) => {
+    if (ready) {
+      console.log('[Electron] 后端已就绪，打开启动器窗口');
+      createWindow();
+    } else {
+      console.error('[Electron] 后端在限定时间内未就绪，仍尝试打开窗口并提示用户');
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('backend-status', { timeout: true });
+      } else {
+        createWindow();
+      }
+    }
+  });
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -182,6 +250,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  app.isQuiting = true;
   gracefulShutdown();
 });
 

@@ -194,3 +194,55 @@ RunningHub 工作流 `2031016553440878594` 的「表单字段 → ComfyUI 节点
 - **响应格式约定**：控制器统一返回 `{ code, message, data }`，`data` 必须是已 `await` 的值。全局 `ResponseNormalizeInterceptor` 会兜底 await 嵌套 Promise，防止 `data` 被序列化成 `{}`。
 
 详见 `docs/需求2-系统设计.md`。
+
+---
+
+## 7. 桌面端打包（Electron）与 macOS「文件已损坏」问题
+
+桌面端由 `frontend` 的 Electron + electron-builder 打包，CI 见 `.github/workflows/build.yml`，产出 Windows NSIS 安装包与 macOS arm64 dmg。
+
+### 7.1 为什么 macOS 会提示「文件已损坏，无法打开」
+macOS 的 Gatekeeper 会拦截**未签名 / 未公证**的 `.app`。当前默认配置 `frontend/package.json` 中 `mac.identity: null`，即**不签名**，
+因此下载到他人 Mac 上双击会报 `“AI生成面板” 已损坏，无法打开。 请移到废纸篓。`。
+
+这是**预期行为**，不是构建 Bug。有三种解决路径：
+
+| 方案 | 成本 | 效果 | 适用 |
+| --- | --- | --- | --- |
+| A. 用户侧手动放行 | 0 | 仅本机可用，需每台机器执行一次 | 内部小范围分发 |
+| B. 仅签名（无公证） | 需 $99 Apple Developer | 本机/同账号可正常打开，跨设备仍可能被拦 | 团队内部分发 |
+| C. 签名 + 公证（推荐） | 需 $99 + 配置 Secrets | 任意 Mac 直接打开，无警告 | 正式对外发布 |
+
+**方案 A（临时救急，用户执行一次）：**
+```bash
+# 在「系统设置 → 隐私与安全性」点「仍要打开」；或终端放行：
+sudo xattr -rd com.apple.quarantine /Applications/AI生成面板.app
+```
+
+**方案 C（彻底解决，配置一次即自动化）：** 在仓库 `Settings → Secrets` 增加以下 Secrets，CI 会通过 `electron-builder` 自动签名并公证：
+```
+MAC_CSC_LINK                 # 导出的 Apple 发行证书 p12（base64 或文件 URL）
+MAC_CSC_KEY_PASSWORD         # p12 密码
+APPLE_ID                     # 开发者 Apple ID
+APPLE_APP_SPECIFIC_PASSWORD  # 专用密码（appleid.apple.com 生成）
+APPLE_TEAM_ID                # 团队 ID
+```
+配置后，`build.yml` 会注入这些变量并自动将 `mac.identity` 从 `null` 切到证书；同时 `hardenedRuntime: true` 已开启以兼容公证。
+未配置时 CI 仍按未签名方式构建，但**会做 dmg 完整性校验**（hdiutil + 体积检查），避免上传真正的坏包。
+
+### 7.2 构建健壮性增强（已落地）
+- `frontend/package.json`：移除硬编码的本地 Windows 输出路径，统一输出到相对目录 `release`；`mac.hardenedRuntime: true` 为公证铺路。
+- `build.yml`：Windows / macOS 构建后都会**校验产物真实存在且体积 > 1MB**，并通过 `hdiutil imageinfo` 校验 dmg 是否为合法镜像；发布到 GitHub Release 后再做一次完整性检查，杜绝「坏包上线」。
+- `frontend/electron/main.cjs`：
+  - 后端启动由固定 `setTimeout(2000)` 改为**健康检查轮询**（`/health`，最多等 30s），就绪后再弹窗；
+  - 后端异常退出时**自动自愈重启**（最多 3 次），主动退出（`before-quit`）不触发重启；
+  - 优雅关闭对 `kill` 做异常兜底，避免偶发 EPERM 崩溃。
+
+### 7.3 本地打包命令
+```bash
+cd frontend
+npm install
+npm run build && npx electron-builder --mac --config.directories.output=release --publish never
+# 产物位于 frontend/release/*.dmg
+```
+
