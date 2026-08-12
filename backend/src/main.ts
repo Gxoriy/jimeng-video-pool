@@ -115,6 +115,12 @@ async function bootstrap() {
 
   app.use(cookieParser());
 
+  // 托管上传文件（参考素材等）
+  const uploadsDir = join(process.cwd(), 'uploads');
+  if (existsSync(uploadsDir)) {
+    app.use('/files', express.static(uploadsDir));
+  }
+
   // 生产环境直接托管前端打包产物（Electron 仅作为服务启动器，用户在浏览器访问）
   // 注意：必须在 setGlobalPrefix 之前注册，否则 NestJS 的全局前缀路由会优先拦截根路径 /
   if (process.env.NODE_ENV === 'production') {

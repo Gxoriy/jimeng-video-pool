@@ -32,7 +32,10 @@ const MIN_VERSION = '3.0.2';
 const FILE_MAX_SIZE = 100 * 1024 * 1024;
 
 // 模块级随机常量（与 jimen2api 一致，模拟浏览器会话）
+// 注意：uid_tt / _tea_web_id 必须是模块级固定值，不能在每次请求时重新随机，
+// 否则即梦会把 sessionid 与 uid_tt 不匹配的会话判定为异常登录，导致 302 踢回、查活全部失效。
 const WEB_ID = Math.floor(Math.random() * 9_999_999_999_999_999_999 + 7_000_000_000_000_000_000).toString();
+const UID_TT = crypto.randomUUID().replace(/-/g, '');
 
 const FAKE_HEADERS: Record<string, string> = {
   Accept: 'application/json, text/plain, */*',
@@ -126,8 +129,8 @@ export function generateCookie(refreshToken: string): string {
     `store-region=cn-gd`,
     `store-region-src=uid`,
     `sid_guard=${refreshToken}%7C${unixTimestamp()}%7C5184000%7CMon%2C+03-Feb-2025+08%3A17%3A09+GMT`,
-    `uid_tt=${uuidNoDash()}`,
-    `uid_tt_ss=${uuidNoDash()}`,
+    `uid_tt=${UID_TT}`,
+    `uid_tt_ss=${UID_TT}`,
     `sid_tt=${refreshToken}`,
     `sessionid=${refreshToken}`,
     `sessionid_ss=${refreshToken}`,
@@ -457,9 +460,10 @@ export class JimengCoreService {
   async refreshSession(
     sessionid: string,
     scope: NetworkScope = NetworkScope.RESTRICTED,
-  ): Promise<{ alive: boolean; refreshed?: { sessionid?: string; sidTt?: string; sidGuard?: string } }> {
+  ): Promise<{ alive: boolean; refreshed?: { sessionid?: string; sidTt?: string; sidGuard?: string }; error?: string }> {
     // 步骤 1：以查积分作为存活判定（最可靠）
     let alive = false;
+    let step1Error: string | undefined;
     try {
       await this.getCredit(sessionid, scope);
       alive = true;
@@ -469,7 +473,8 @@ export class JimengCoreService {
         alive = true;
         this.logger.log(`[refreshSession] 账号登录正常但积分不足`);
       } else {
-        this.logger.warn(`[refreshSession] 查积分失败，账号可能已失效: ${err?.message || err}`);
+        step1Error = err?.message || String(err);
+        this.logger.warn(`[refreshSession] 查积分失败，账号可能已失效: ${step1Error}`);
       }
     }
 
@@ -492,10 +497,11 @@ export class JimengCoreService {
       // passport 能走到 user_id 也认活（兜底）
       if (passportAlive) alive = true;
       const refreshed = this.extractRefreshedCookies(result.headers);
-      return { alive, refreshed };
+      return { alive, refreshed, error: step1Error };
     } catch (err: any) {
-      this.logger.debug(`[refreshSession] /passport/account/info/v2 调用失败: ${err?.message || err}`);
-      return { alive };
+      const step2Error = err?.message || String(err);
+      this.logger.debug(`[refreshSession] /passport/account/info/v2 调用失败: ${step2Error}`);
+      return { alive, error: step1Error || step2Error };
     }
   }
 
@@ -514,6 +520,289 @@ export class JimengCoreService {
       if (mg) out.sidGuard = decodeURIComponent(mg[1].split('%7C')[0].split('|')[0]);
     }
     return out;
+  }
+
+  /* =========================================================
+   * 视频 / 图片生成（基于 jimen2api-all 真实接口封装）
+   * 说明：本 service 仅为「即梦核心调用层」，不依赖数据库，
+   * 选号/存储由 jimeng-account.service 与 jimeng-video/image.service 负责。
+   * 以下方法接收 sessionid，返回即梦平台的任务 id 或结果。
+   * ========================================================= */
+
+  /**
+   * 提交视频生成任务。
+   * @returns { task_id } 即梦平台的生成任务 id
+   */
+  async generateVideo(
+    sessionid: string,
+    opts: {
+      prompt: string;
+      ratio?: string;
+      resolution?: string;
+      duration?: number;
+      firstFrameImage?: string; // 本地图片 url，需先 uploadFile 转 image_uri
+      endFrameImage?: string;
+      referenceImages?: string[]; // 已转 image_uri 的参考图
+      referenceMode?: string;
+    },
+    scope: NetworkScope = NetworkScope.RESTRICTED,
+  ): Promise<{ task_id: string }> {
+    // 首帧 / 尾帧：本地 url -> image_uri
+    let firstFrameImageUri: string | undefined;
+    let endFrameImageUri: string | undefined;
+
+    if (opts.firstFrameImage) {
+      try {
+        firstFrameImageUri = await this.uploadFile(sessionid, opts.firstFrameImage);
+      } catch (e: any) {
+        this.logger.warn(`[generateVideo] 首帧上传失败: ${e?.message}`);
+      }
+    }
+    if (opts.endFrameImage) {
+      try {
+        endFrameImageUri = await this.uploadFile(sessionid, opts.endFrameImage);
+      } catch (e: any) {
+        this.logger.warn(`[generateVideo] 尾帧上传失败: ${e?.message}`);
+      }
+    }
+
+    const [w, h] = (opts.ratio || '16:9').split(':').map(Number);
+    const duration = opts.duration || 10;
+    const resolution = opts.resolution || '720p';
+
+    // 参考图作为 content（文本前）
+    const imageContents: any[] = [];
+    for (const uri of opts.referenceImages || []) {
+      imageContents.push({ type: 'image', image_uri: uri });
+    }
+
+    const mainContent: any[] = [
+      ...imageContents,
+      { type: 'text', text: opts.prompt },
+    ];
+
+    const payload: any = {
+      model: 'vision',
+      data_type: 'aigc_video',
+      main_file_id: '',
+      generate_num: 1,
+      generate_params: {
+        video_duration: duration,
+        resolution: resolution === '1080p' ? '1080p' : '720p',
+        aspect_ratio: `${w}:${h}`,
+        mode: 'general',
+        model_version: 'v3.0',
+        first_frame_image: firstFrameImageUri ? { image_uri: firstFrameImageUri } : null,
+        last_frame_image: endFrameImageUri ? { image_uri: endFrameImageUri } : null,
+        manual_beautify: false,
+        mp_mode: false,
+        watermark: false,
+        movie_gen: 0,
+        seed: -1,
+        // 全能参考：若提供参考图，附加 master/reference 信息
+        ...(opts.referenceMode && (opts.referenceImages || []).length
+          ? { reference_type: opts.referenceMode, reference_images: opts.referenceImages }
+          : {}),
+      },
+      content: JSON.stringify(mainContent),
+      assistant_id: DEFAULT_ASSISTANT_ID,
+      chat_id: '',
+      event_group_id: uuidNoDash(),
+      ref_proxy_id: '',
+      ref_proxy_source: '',
+      client_agent: 'web_script',
+      origin_assistant_id: DEFAULT_ASSISTANT_ID,
+      prompt_recommend: false,
+      file_extra: {},
+      template_id: '',
+      template_version: '',
+      version_code: VERSION_CODE,
+      platform_code: PLATFORM_CODE,
+      draft_version: DRAFT_VERSION,
+      app_version: WEB_VERSION,
+      min_version: MIN_VERSION,
+    };
+
+    const result = await this.jimengRequest(
+      'post',
+      '/mweb/v1/aigc_draft/generate',
+      sessionid,
+      {
+        data: payload,
+        headers: { Referer: 'https://jimeng.jianying.com/ai-tool/video/generate' },
+      },
+      scope,
+    );
+    const data = this.checkResult(result);
+    const taskId = data?.task_id || data?.id;
+    if (!taskId) throw new Error('即梦未返回任务ID：' + JSON.stringify(data).slice(0, 200));
+    return { task_id: taskId };
+  }
+
+  /** 轮询视频生成结果 */
+  async queryVideoResult(
+    taskId: string,
+    sessionid: string,
+    scope: NetworkScope = NetworkScope.RESTRICTED,
+  ) {
+    const result = await this.jimengRequest(
+      'post',
+      '/mweb/v1/get_history_by_ids',
+      sessionid,
+      {
+        data: { draft_ids: [taskId], type: 2, force_legacy: false },
+        headers: { Referer: 'https://jimeng.jianying.com/ai-tool/video/generate' },
+      },
+      scope,
+    );
+    const data = this.checkResult(result);
+    const histories: any[] = data?.histories || data?.data?.histories || [];
+    const task = histories[0];
+    if (!task) {
+      // 还没生成出来，返回处理中
+      return { status_code: 1, progress: 10 } as any;
+    }
+    const status = task.status; // 1=排队 2=生成中 3=成功 4=失败
+    if (status === 3) {
+      let videoUrl = '';
+      let coverUrl = '';
+      try {
+        const work = JSON.parse(task.workflow_json || '{}');
+        const items = work?.data?.[0]?.work_list?.[0]?.origin?.[0]?.work?.[0]?.items || [];
+        // 取最后一个含视频的项
+        for (const it of items) {
+          if (it?.video?.video_url?.url) videoUrl = it.video.video_url.url;
+          if (it?.cover?.url) coverUrl = it.cover.url;
+          if (it?.video?.cover_image?.url) coverUrl = it.video.cover_image.url;
+        }
+      } catch (e) {
+        this.logger.warn(`[queryVideoResult] 解析 workflow_json 失败: ${e}`);
+      }
+      return { status_code: 2, video_url: videoUrl, cover_url: coverUrl, progress: 100 } as any;
+    }
+    if (status === 4) {
+      return { status_code: 3, status_msg: task.fail_reason || '生成失败' } as any;
+    }
+    return { status_code: 1, progress: 30 } as any;
+  }
+
+  /**
+   * 提交图片生成任务。
+   * @returns { task_id }
+   */
+  async generateImage(
+    sessionid: string,
+    opts: {
+      prompt: string;
+      ratio?: string;
+      imageUrl?: string; // 本地参考图 url，需 uploadFile 转 image_uri
+    },
+    scope: NetworkScope = NetworkScope.RESTRICTED,
+  ): Promise<{ task_id: string }> {
+    let imageUri: string | undefined;
+    if (opts.imageUrl) {
+      try {
+        imageUri = await this.uploadFile(sessionid, opts.imageUrl);
+      } catch (e: any) {
+        this.logger.warn(`[generateImage] 参考图上传失败: ${e?.message}`);
+      }
+    }
+
+    const [w, h] = (opts.ratio || '1:1').split(':').map(Number);
+    const mainContent: any[] = [];
+    if (imageUri) mainContent.push({ type: 'image', image_uri: imageUri });
+    mainContent.push({ type: 'text', text: opts.prompt });
+
+    const payload: any = {
+      model: 'gemini-2.5-flash',
+      data_type: 'aigc_image',
+      main_file_id: '',
+      generate_num: 4,
+      generate_params: {
+        prompt: opts.prompt,
+        image_ratio: `${w}:${h}`,
+        manual_beautify: false,
+        watermark: false,
+        seed: -1,
+        scale: 2,
+        restore_clear: false,
+      },
+      content: JSON.stringify(mainContent),
+      assistant_id: DEFAULT_ASSISTANT_ID,
+      chat_id: '',
+      event_group_id: uuidNoDash(),
+      ref_proxy_id: '',
+      ref_proxy_source: '',
+      client_agent: 'web_script',
+      origin_assistant_id: DEFAULT_ASSISTANT_ID,
+      prompt_recommend: false,
+      file_extra: {},
+      template_id: '',
+      template_version: '',
+      version_code: VERSION_CODE,
+      platform_code: PLATFORM_CODE,
+      draft_version: DRAFT_VERSION,
+      app_version: WEB_VERSION,
+      min_version: MIN_VERSION,
+    };
+
+    const result = await this.jimengRequest(
+      'post',
+      '/mweb/v1/aigc_draft/generate',
+      sessionid,
+      {
+        data: payload,
+        headers: { Referer: 'https://jimeng.jianying.com/ai-tool/image/generate' },
+      },
+      scope,
+    );
+    const data = this.checkResult(result);
+    const taskId = data?.task_id || data?.id;
+    if (!taskId) throw new Error('即梦未返回图片任务ID：' + JSON.stringify(data).slice(0, 200));
+    return { task_id: taskId };
+  }
+
+  /** 轮询图片生成结果 */
+  async queryImageResult(
+    taskId: string,
+    sessionid: string,
+    scope: NetworkScope = NetworkScope.RESTRICTED,
+  ) {
+    const result = await this.jimengRequest(
+      'post',
+      '/mweb/v1/get_history_by_ids',
+      sessionid,
+      {
+        data: { draft_ids: [taskId], type: 1, force_legacy: false },
+        headers: { Referer: 'https://jimeng.jianying.com/ai-tool/image/generate' },
+      },
+      scope,
+    );
+    const data = this.checkResult(result);
+    const histories: any[] = data?.histories || data?.data?.histories || [];
+    const task = histories[0];
+    if (!task) {
+      return { status_code: 1, progress: 10 } as any;
+    }
+    const status = task.status;
+    if (status === 3) {
+      let images: string[] = [];
+      try {
+        const work = JSON.parse(task.workflow_json || '{}');
+        const items = work?.data?.[0]?.work_list?.[0]?.origin?.[0]?.work?.[0]?.items || [];
+        for (const it of items) {
+          const u = it?.image?.image_url?.url || it?.image?.url;
+          if (u) images.push(u);
+        }
+      } catch (e) {
+        this.logger.warn(`[queryImageResult] 解析 workflow_json 失败: ${e}`);
+      }
+      return { status_code: 2, images, progress: 100 } as any;
+    }
+    if (status === 4) {
+      return { status_code: 3, status_msg: task.fail_reason || '生成失败' } as any;
+    }
+    return { status_code: 1, progress: 30 } as any;
   }
 }
 

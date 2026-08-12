@@ -37,8 +37,12 @@ export class JimengAdminController {
 
   @Post('import')
   async import(@Body() dto: ImportAccountsDto, @CurrentUser() user: AuthUser) {
-    const list = await this.svc.import(dto.cookies, dto.source || 'local');
-    return { code: 0, message: 'ok', data: { imported: list.length, items: list } };
+    const results: any[] = [];
+    for (const cookie of dto.cookies) {
+      const list = await this.svc.import(cookie, dto.source || 'local');
+      results.push(...list);
+    }
+    return { code: 0, message: 'ok', data: { imported: results.length, items: results } };
   }
 
   @Get()
