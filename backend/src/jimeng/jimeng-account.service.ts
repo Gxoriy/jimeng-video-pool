@@ -1,7 +1,7 @@
 import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { encrypt, decrypt } from '../common/utils/encryption.util';
-import { JimengCoreService } from './jimeng-core.service';
+import { JimengCoreService, JimengInsufficientCreditError } from './jimeng-core.service';
 import { NetworkScope } from '../common/roles.enum';
 import { FileService } from '../file/file.service';
 
@@ -192,32 +192,70 @@ export class JimengAccountService {
     return { id, alive, refreshedSessionid, credits, status, error: lastError };
   }
 
-  /** 选号：从 active 且未过期账号中按积分加权随机选一个（带并发锁） */
+  /**
+   * 选号：从 active 且未过期账号中按积分加权随机选一个（带并发锁）。
+   * 生成前会实时回刷即梦真实余额（getCredit），自动跳过「余额为 0」或「已失效」的号，
+   * 避免选中空号在生成时触发 1006 积分不足。
+   */
   async selectOne(): Promise<{ id: string; sessionid: string }> {
     const now = new Date();
     const candidates = await this.prisma.jimengAccount.findMany({
       where: { status: 'active', OR: [{ expireAt: null }, { expireAt: { gt: now } }] },
     });
-    const available = candidates.filter((c) => !this.busy.has(c.id));
-    const pool = available.length ? available : candidates;
+    let pool = candidates.filter((c) => !this.busy.has(c.id));
+    if (!pool.length) pool = candidates;
     if (!pool.length) throw new BadRequestException('当前没有可用的即梦账号（请先导入并查活）');
 
-    // 按可用积分加权（credits - creditsUsed），积分<=0 时权重=1，避免饿死
-    const weights = pool.map((c) => {
-      const avail = c.credits - (c.creditsUsed || 0);
-      return avail > 0 ? avail : 1;
-    });
-    const total = weights.reduce((a, b) => a + b, 0);
-    let r = Math.random() * total;
-    let idx = 0;
-    for (let i = 0; i < pool.length; i++) {
-      r -= weights[i];
-      if (r <= 0) { idx = i; break; }
+    const tried = new Set<string>();
+    // 最多尝试 min(pool, 5) 个号，平衡命中率与选号延迟
+    const maxTry = Math.min(pool.length, 5);
+    for (let attempt = 0; attempt < maxTry; attempt++) {
+      const remaining = pool.filter((c) => !tried.has(c.id));
+      if (!remaining.length) break;
+
+      // 按可用积分加权（credits - creditsUsed），积分<=0 时权重=1，避免饿死
+      const weights = remaining.map((c) => {
+        const avail = c.credits - (c.creditsUsed || 0);
+        return avail > 0 ? avail : 1;
+      });
+      const total = weights.reduce((a, b) => a + b, 0);
+      let r = Math.random() * total;
+      let idx = 0;
+      for (let i = 0; i < remaining.length; i++) {
+        r -= weights[i];
+        if (r <= 0) { idx = i; break; }
+      }
+      const chosen = remaining[idx];
+      tried.add(chosen.id);
+
+      const sessionid = decrypt(chosen.sessionid);
+      try {
+        const { totalCredit } = await this.core.getCredit(sessionid, NetworkScope.RESTRICTED);
+        if (totalCredit > 0) {
+          this.busy.add(chosen.id);
+          await this.prisma.jimengAccount
+            .update({ where: { id: chosen.id }, data: { credits: totalCredit, lastUsedAt: new Date() } })
+            .catch(() => {});
+          return { id: chosen.id, sessionid };
+        }
+        this.logger.warn(`[selectOne] 账号 ${chosen.id} 实时余额=0，跳过`);
+      } catch (e: any) {
+        if (e instanceof JimengInsufficientCreditError) {
+          // 1006 / 5000：能登录但没分，把 credits 刷成 0 避免反复选中
+          this.logger.warn(`[selectOne] 账号 ${chosen.id} 积分不足，标记 credits=0`);
+          await this.prisma.jimengAccount
+            .update({ where: { id: chosen.id }, data: { credits: 0, lastCheckAt: new Date() } })
+            .catch(() => {});
+        } else {
+          // 其它错误（含过期）→ 标记失效，避免反复选中
+          this.logger.warn(`[selectOne] 账号 ${chosen.id} 查分失败，标记过期: ${e?.message}`);
+          await this.prisma.jimengAccount
+            .update({ where: { id: chosen.id }, data: { status: 'expired', lastCheckAt: new Date() } })
+            .catch(() => {});
+        }
+      }
     }
-    const chosen = pool[idx];
-    this.busy.add(chosen.id);
-    await this.prisma.jimengAccount.update({ where: { id: chosen.id }, data: { lastUsedAt: new Date() } }).catch(() => {});
-    return { id: chosen.id, sessionid: decrypt(chosen.sessionid) };
+    throw new BadRequestException('当前没有有余额的即梦账号（账号可能已耗尽积分或失效，请检查账号池）');
   }
 
   /** 释放选号锁 */

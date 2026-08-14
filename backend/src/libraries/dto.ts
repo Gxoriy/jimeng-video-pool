@@ -1,4 +1,4 @@
-import { IsArray, IsEnum, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsBoolean, IsEnum, IsOptional, IsString } from 'class-validator';
 import { PromptType } from '@prisma/client';
 
 export class CreateCharacterDto {
@@ -91,4 +91,25 @@ export class BatchImportSongsDto {
 export class BatchImportPromptsDto {
   @IsArray() items: CreatePromptDto[];
   @IsOptional() overwrite?: boolean;
+  /** 是否启用 AI 智能分类（默认 true）。false 时跳过 AI，直接用传入的分类/标签入库。 */
+  @IsOptional() @IsBoolean() enableAi?: boolean;
+}
+
+/* ---------------- 形象多图（同一名称下不同风格/背景） ---------------- */
+
+export class AppendCharacterImagesDto {
+  /** 直接给 URL（内部同步/外部来源） */
+  @IsOptional() @IsArray() urls?: string[];
+  /** 或先上传拿到的 uploadId 列表（按 user_id 隔离） */
+  @IsOptional() @IsArray() uploadIds?: string[];
+  /** 风格/背景描述，用于前端折叠分组 */
+  @IsOptional() @IsString() style?: string;
+  /** 生成提示词（可选） */
+  @IsOptional() @IsString() prompt?: string;
+}
+
+export class PatchCharacterImageDto {
+  @IsOptional() @IsString() style?: string;
+  @IsOptional() @IsString() prompt?: string;
+  @IsOptional() @IsString() url?: string;
 }

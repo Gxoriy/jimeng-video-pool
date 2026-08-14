@@ -89,6 +89,22 @@ export class AiChannelClient {
     return `${ch.id}:${ch.model}`;
   }
 
+  /** 比例 -> OpenAI 风格尺寸；用于把即梦比例透传到 AI 渠道生图 */
+  private static ratioToSize(ratio: string): string {
+    const map: Record<string, string> = {
+      '1:1': '1024x1024',
+      '16:9': '1280x720',
+      '9:16': '720x1280',
+      '3:4': '768x1024',
+      '4:3': '1024x768',
+      '2:3': '768x1152',
+      '3:2': '1152x768',
+      '21:9': '1792x768',
+      '9:21': '768x1792',
+    };
+    return map[ratio] || '1024x1024';
+  }
+
   /** 该渠道是否已被判定为不支持读图 */
   static isVisionDisabled(ch: ResolvedChannel) {
     return AiChannelClient.noVisionChannels.has(AiChannelClient.channelKey(ch));
@@ -234,7 +250,7 @@ export class AiChannelClient {
     ch: ResolvedChannel,
     scope: NetworkScope,
     prompt: string,
-    opts: { size?: string; n?: number; referenceImageUrls?: string[] } = {},
+    opts: { size?: string; n?: number; ratio?: string; quality?: string; referenceImageUrls?: string[] } = {},
   ): Promise<{ urls: string[]; b64: string[] }> {
     const refs = (opts.referenceImageUrls || []).filter(Boolean);
     const key = AiChannelClient.channelKey(ch);
@@ -259,17 +275,22 @@ export class AiChannelClient {
     ch: ResolvedChannel,
     scope: NetworkScope,
     prompt: string,
-    opts: { size?: string; n?: number },
+    opts: { size?: string; n?: number; ratio?: string; quality?: string },
   ): Promise<{ urls: string[]; b64: string[] }> {
+    // 比例优先：若给了比例则按宽高比推导尺寸，覆盖 size
+    const size = opts.ratio ? AiChannelClient.ratioToSize(opts.ratio) : opts.size || '1024x1024';
+    const body: any = {
+      model: ch.model,
+      prompt,
+      n: Math.min(Math.max(Number(opts.n) || 1, 1), 4),
+      size,
+    };
+    // 画质作为 quality 透传（OpenAI 兼容网关忽略未知字段，不影响兼容性）
+    if (opts.quality) body.quality = opts.quality;
     const resp = await this.http.post(
       `${ch.baseUrl}/images/generations`,
       scope,
-      {
-        model: ch.model,
-        prompt,
-        n: Math.min(Math.max(Number(opts.n) || 1, 1), 4),
-        size: opts.size || '1024x1024',
-      },
+      body,
       {
         headers: {
           Authorization: `Bearer ${ch.apiKey}`,

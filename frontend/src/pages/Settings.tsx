@@ -17,6 +17,9 @@ import {
   getSettings,
   saveRunninghubKey,
   testRunninghubKey,
+  saveHedraCookie,
+  clearHedraCookie,
+  testHedraCookie,
 } from '../api/pipeline';
 
 /**
@@ -30,6 +33,11 @@ export default function Settings() {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const [hedraInput, setHedraInput] = useState('');
+  const [hedraSaving, setHedraSaving] = useState(false);
+  const [hedraTesting, setHedraTesting] = useState(false);
+  const [hedraTest, setHedraTest] = useState<{ ok: boolean; text: string } | null>(null);
 
   const load = () => getSettings().then(setInfo).catch(() => undefined);
 
@@ -74,6 +82,52 @@ export default function Settings() {
     await clearRunninghubKey();
     message.success('已清空');
     setTestResult(null);
+    await load();
+  };
+
+  const onSaveHedra = async () => {
+    if (!hedraInput.trim()) {
+      message.warning('请输入 Hedra cookie');
+      return;
+    }
+    setHedraSaving(true);
+    try {
+      await saveHedraCookie(hedraInput.trim());
+      message.success('已保存');
+      setHedraInput('');
+      setHedraTest(null);
+      await load();
+    } catch (e: any) {
+      message.error(e?.response?.data?.message || '保存失败');
+    } finally {
+      setHedraSaving(false);
+    }
+  };
+
+  const onTestHedra = async () => {
+    setHedraTesting(true);
+    setHedraTest(null);
+    try {
+      const r = await testHedraCookie();
+      setHedraTest({
+        ok: r.ok,
+        text: r.ok
+          ? r.email
+            ? `登录正常：${r.email}`
+            : '登录正常'
+          : r.message || '校验失败',
+      });
+    } catch (e: any) {
+      setHedraTest({ ok: false, text: e?.response?.data?.message || '校验失败' });
+    } finally {
+      setHedraTesting(false);
+    }
+  };
+
+  const onClearHedra = async () => {
+    await clearHedraCookie();
+    message.success('已清空');
+    setHedraTest(null);
     await load();
   };
 
@@ -142,6 +196,68 @@ export default function Settings() {
             type={testResult.ok ? 'success' : 'error'}
             showIcon
             message={testResult.text}
+          />
+        )}
+      </Card>
+
+      <Card title="Hedra Cookie（提示词扩写）">
+        <Alert
+          style={{ marginBottom: 16 }}
+          type="info"
+          showIcon
+          message="关于 Hedra Cookie"
+          description={
+            <Typography.Paragraph style={{ marginBottom: 0 }}>
+              视频工作区的「提示词扩写」优先调用 Hedra。此处填写你自己的 Hedra 登录 cookie
+              （浏览器导出数组、JSON 对象或 <code>Cookie:</code> 请求头均可），采用 AES-256-GCM
+              加密存储，页面只回显掩码。留空则回退到服务器 <code>.env</code> 配置的全局 Hedra cookie。
+            </Typography.Paragraph>
+          }
+        />
+        <Descriptions size="small" column={1} style={{ marginBottom: 16 }}>
+          <Descriptions.Item label="配置状态">
+            {info?.hedraCookieConfigured ? (
+              <Tag color="green">已配置</Tag>
+            ) : (
+              <Tag color="red">未配置</Tag>
+            )}
+          </Descriptions.Item>
+          <Descriptions.Item label="当前 Cookie">
+            {info?.hedraCookieMask || '—'}
+          </Descriptions.Item>
+          <Descriptions.Item label="更新时间">
+            {info?.hedraCookieAt ? new Date(info.hedraCookieAt).toLocaleString('zh-CN') : '—'}
+          </Descriptions.Item>
+        </Descriptions>
+
+        <Space direction="vertical" style={{ width: '100%' }} size={12}>
+          <Input.TextArea
+            rows={4}
+            placeholder="粘贴你的 Hedra cookie（数组 / JSON 对象 / Cookie 请求头）"
+            value={hedraInput}
+            onChange={(e) => setHedraInput(e.target.value)}
+          />
+          <Space>
+            <Button type="primary" loading={hedraSaving} onClick={onSaveHedra}>
+              保存
+            </Button>
+            <Button onClick={onTestHedra} loading={hedraTesting} disabled={!info?.hedraCookieConfigured}>
+              测试登录
+            </Button>
+            <Popconfirm title="确定清空已保存的 Hedra cookie？" onConfirm={onClearHedra}>
+              <Button danger disabled={!info?.hedraCookieConfigured}>
+                清空
+              </Button>
+            </Popconfirm>
+          </Space>
+        </Space>
+
+        {hedraTest && (
+          <Alert
+            style={{ marginTop: 16 }}
+            type={hedraTest.ok ? 'success' : 'error'}
+            showIcon
+            message={hedraTest.text}
           />
         )}
       </Card>

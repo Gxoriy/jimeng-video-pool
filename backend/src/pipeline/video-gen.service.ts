@@ -55,6 +55,53 @@ export class VideoGenService {
   ) {}
 
   async generate(user: AuthUser, dto: VideoGenDto) {
+    const prepared = await this.prepare(user, dto);
+    const { apiKey, image, audio, workflowId } = prepared;
+
+    // ---- 3. 建任务 ----
+    const task = await this.recorder.start({
+      userId: user.id,
+      type: TaskType.video,
+      prompt: dto.actionPrompt?.trim() || '',
+      provider: Executor.RUNNINGHUB,
+      model: `runninghub:${workflowId}`,
+      params: {
+        stage: 'P3',
+        workflowId,
+        imageUrl: image.url,
+        imageSource: image.source,
+        audioUrl: audio.url,
+        audioSource: audio.source,
+        songId: dto.songId,
+        durationSeconds: dto.durationSeconds,
+        audioStartSeconds: dto.audioStartSeconds,
+        audioEndSeconds: dto.audioEndSeconds,
+        maxResolution: dto.maxResolution,
+        fps: dto.fps,
+      },
+    });
+
+    await this.logStart(task.id, dto, workflowId);
+
+    this.run(task.id, user, apiKey, workflowId, image, audio, dto).catch((e) =>
+      this.recorder.fail(task.id, e),
+    );
+
+    return { taskId: task.id, status: 'running' };
+  }
+
+  /**
+   * 供 WorkspaceService 复用：使用已存在的任务（断点续跑时不重复建任务）。
+   * 会先 resolve 素材并上传 RunningHub，最后把结果写回 taskId。
+   */
+  async execute(user: AuthUser, taskId: string, dto: VideoGenDto) {
+    const prepared = await this.prepare(user, dto);
+    const { apiKey, image, audio, workflowId } = prepared;
+    await this.logStart(taskId, dto, workflowId);
+    await this.run(taskId, user, apiKey, workflowId, image, audio, dto);
+  }
+
+  private async prepare(user: AuthUser, dto: VideoGenDto) {
     // ---- 1. 必须先有个人 Key（未配置直接报错，不回退）----
     const apiKey = await this.settings.requireRunninghubKey(user.id);
 
@@ -90,31 +137,12 @@ export class VideoGenService {
     const workflowId =
       this.config.get<string>('app.runninghubWorkflowId') || '2031016553440878594';
 
-    // ---- 3. 建任务 ----
-    const task = await this.recorder.start({
-      userId: user.id,
-      type: TaskType.video,
-      prompt: actionPrompt,
-      provider: Executor.RUNNINGHUB,
-      model: `runninghub:${workflowId}`,
-      params: {
-        stage: 'P3',
-        workflowId,
-        imageUrl: image.url,
-        imageSource: image.source,
-        audioUrl: audio.url,
-        audioSource: audio.source,
-        songId: dto.songId,
-        durationSeconds: dto.durationSeconds,
-        audioStartSeconds: dto.audioStartSeconds,
-        audioEndSeconds: dto.audioEndSeconds,
-        maxResolution: dto.maxResolution,
-        fps: dto.fps,
-      },
-    });
+    return { apiKey, image, audio, workflowId };
+  }
 
+  private async logStart(taskId: string, dto: VideoGenDto, workflowId: string) {
     await this.recorder.log(
-      task.id,
+      taskId,
       'info',
       [
         `P3 视频生成｜工作流=${workflowId}`,
@@ -126,17 +154,11 @@ export class VideoGenService {
     );
     if (dto.durationSeconds > 35) {
       await this.recorder.log(
-        task.id,
+        taskId,
         'warn',
         '生成秒数超过 35 秒，耗时与 R 币消耗会显著上升，且效果可能下降',
       );
     }
-
-    this.run(task.id, user, apiKey, workflowId, image, audio, dto).catch((e) =>
-      this.recorder.fail(task.id, e),
-    );
-
-    return { taskId: task.id, status: 'running' };
   }
 
   private async run(
@@ -186,7 +208,7 @@ export class VideoGenService {
     });
 
     // ---- 落地 ----
-    const localPaths: string[] = [];
+    const localPaths: Array<string | null> = [];
     for (const url of urls) {
       try {
         const lp = await this.media.download(url, scope);

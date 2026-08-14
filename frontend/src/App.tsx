@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard';
 import CharacterGen from './pages/CharacterGen';
 import Inspiration from './pages/Inspiration';
 import VideoGen from './pages/VideoGen';
+import VideoWorkspace from './pages/VideoWorkspace';
 import Characters from './pages/Characters';
 import Songs from './pages/Songs';
 import Prompts from './pages/Prompts';
@@ -31,10 +32,13 @@ export default function App() {
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<Dashboard />} />
 
-        {/* 三阶段 */}
-        <Route path="character-gen" element={<CharacterGen />} />
-        <Route path="inspiration" element={<Inspiration />} />
-        <Route path="video" element={<VideoGen />} />
+        {/* 三阶段（旧入口，重定向到统一视频工作区） */}
+        <Route path="character-gen" element={<Navigate to="/video-workspace" replace />} />
+        <Route path="inspiration" element={<Navigate to="/video-workspace" replace />} />
+        <Route path="video" element={<Navigate to="/video-workspace" replace />} />
+
+        {/* 统一视频工作区（获取灵感 + 生成形象 + 视频生成 合并） */}
+        <Route path="video-workspace" element={<VideoWorkspace />} />
 
         {/* 素材库 */}
         <Route path="libraries/characters" element={<Characters />} />

@@ -16,6 +16,8 @@ export interface CharacterImportItemResult {
   category?: string;
   tags?: string[];
   description?: string;
+  /** 本条是否真正走了 AI 视觉识别（false=降级为文件名猜测） */
+  aiUsed?: boolean;
   error?: string;
 }
 
@@ -78,7 +80,23 @@ export class CharacterImportService {
           throw new BadRequestException('无权使用该上传文件');
         }
 
-        const info = await this.classify(up.localPath, up.mimeType, up.filename, up.size);
+        // enableAi 默认开启；关闭时跳过 AI 视觉识别，直接用文件名猜测并以 active 直接入库
+        const enableAi = dto.enableAi !== false;
+        let info: { name: string; category?: string; tags: string[]; description?: string; aiUsed: boolean };
+        let aiUsed = false;
+        if (enableAi) {
+          info = await this.classify(up.localPath, up.mimeType, up.filename, up.size);
+          aiUsed = info.aiUsed;
+        } else {
+          const guess = this.guessFromFilename(up.filename);
+          info = {
+            name: guess || up.filename.replace(/\.[^.]+$/, ''),
+            category: undefined,
+            tags: ['待分类'],
+            description: undefined,
+            aiUsed: false,
+          };
+        }
 
         const character = await this.upsertCharacter(
           {
@@ -87,7 +105,8 @@ export class CharacterImportService {
             category: info.category,
             tags: info.tags,
             description: info.description,
-            status: 'pending_review',
+            // 开启 AI：进入待审核；关闭 AI：直接入库(active)
+            status: enableAi ? 'pending_review' : 'active',
           },
           dto.overwrite,
         );
@@ -111,6 +130,7 @@ export class CharacterImportService {
           category: info.category,
           tags: info.tags,
           description: info.description,
+          aiUsed,
         });
       } catch (e: any) {
         summary.failed++;
@@ -135,7 +155,7 @@ export class CharacterImportService {
     mimeType: string,
     filename: string,
     size: number,
-  ): Promise<{ name: string; category?: string; tags: string[]; description?: string }> {
+  ): Promise<{ name: string; category?: string; tags: string[]; description?: string; aiUsed: boolean }> {
     const fallback = () => {
       const guess = this.guessFromFilename(filename);
       return {
@@ -143,6 +163,7 @@ export class CharacterImportService {
         category: undefined,
         tags: ['待分类'],
         description: undefined,
+        aiUsed: false,
       };
     };
 
@@ -199,6 +220,7 @@ export class CharacterImportService {
           ? (parsed.tags as any[]).filter((t) => typeof t === 'string').map(String)
           : ['待分类'],
         description: (parsed.description as string) || undefined,
+        aiUsed: true,
       };
     } catch (e: any) {
       this.logger.warn(`视觉识别失败，使用文件名猜测：${e?.message || e}`);
@@ -257,7 +279,7 @@ export class CharacterImportService {
           category: data.category ?? exist.category,
           tags: data.tags ?? undefined,
           description: data.description ?? exist.description,
-          status: 'pending_review',
+          status: data.status,
         },
       });
       return { id: updated.id, name: updated.name, status: updated.status, skipped: false };

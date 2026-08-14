@@ -22,6 +22,11 @@ export class MediaService {
     return this.config.get<string>('app.storagePath') || './data/media';
   }
 
+  /** 内部版：是否仍本地下载原文件。默认 false（仅保留 URL + 工作信息）。 */
+  storeLocally(): boolean {
+    return this.config.get<boolean>('app.storeMediaLocally') !== false;
+  }
+
   private async ensureDir(): Promise<string> {
     const day = new Date().toISOString().slice(0, 10);
     const dir = path.join(this.storageRoot(), day);
@@ -29,8 +34,9 @@ export class MediaService {
     return dir;
   }
 
-  /** 下载远程 URL 落地 */
-  async download(url: string, scope: NetworkScope): Promise<string> {
+  /** 下载远程 URL 落地；若关闭本地存储则直接返回 null（仅保留 URL） */
+  async download(url: string, scope: NetworkScope): Promise<string | null> {
+    if (!this.storeLocally()) return null;
     await this.egress.assertAllowed(url, scope);
     const dir = await this.ensureDir();
     const localPath = path.join(dir, `${uuid()}${this.guessExt(url)}`);
@@ -45,8 +51,9 @@ export class MediaService {
     return localPath;
   }
 
-  /** 保存 base64 图片（部分网关只回 b64_json） */
-  async saveBase64(b64: string, ext = '.png'): Promise<string> {
+  /** 保存 base64 图片（部分网关只回 b64_json）；若关闭本地存储则返回 null */
+  async saveBase64(b64: string, ext = '.png'): Promise<string | null> {
+    if (!this.storeLocally()) return null;
     const dir = await this.ensureDir();
     const localPath = path.join(dir, `${uuid()}${ext}`);
     await writeFile(localPath, Buffer.from(b64, 'base64'));

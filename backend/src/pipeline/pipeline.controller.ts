@@ -1,12 +1,16 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpException, HttpStatus, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth.service';
 import { CharacterGenService } from './character-gen.service';
 import { InspirationService } from './inspiration.service';
 import { VideoGenService } from './video-gen.service';
+import { HedraClient } from './clients/hedra.client';
 import { CharacterGenDto, InspirationDto, VideoGenDto } from './dto/pipeline.dto';
+import { WorkspaceDto, WorkspaceRetryDto } from './dto/workspace.dto';
+import { WorkspaceService } from './workspace.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { resolveUserHedraCookie } from './hedra-cookie.util';
 
 /**
  * 三阶段流水线统一入口：
@@ -24,6 +28,8 @@ export class PipelineController {
     private p1: CharacterGenService,
     private p2: InspirationService,
     private p3: VideoGenService,
+    private workspace: WorkspaceService,
+    private hedra: HedraClient,
   ) {}
 
   /** P1 生成形象 */
@@ -45,6 +51,46 @@ export class PipelineController {
   async video(@CurrentUser() user: AuthUser, @Body() dto: VideoGenDto) {
     const data = await this.p3.generate(user, dto);
     return { code: 0, message: 'ok', data };
+  }
+
+  /**
+   * 视频工作区：创建统一任务（提示词扩写 -> 视频生成）。
+   * 先落任务记录，再异步执行；成功/失败都会写入 tasks 表。
+   */
+  @Post('workspace')
+  async workspaceCreate(@CurrentUser() user: AuthUser, @Body() dto: WorkspaceDto) {
+    const data = await this.workspace.createTask(user, dto);
+    return { code: 0, message: 'ok', data };
+  }
+
+  /**
+   * 断点续跑：重试失败的工作区任务。
+   * 根据任务记录的 stage 决定从提示词扩写还是视频生成阶段恢复。
+   */
+  @Post('workspace/:id/retry')
+  async workspaceRetry(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: WorkspaceRetryDto,
+  ) {
+    const data = await this.workspace.retryTask(user, id, dto);
+    return { code: 0, message: 'ok', data };
+  }
+
+  /**
+   * Hedra 提示词扩写接口实测（仅文本，不消耗附件）。
+   * 用于验证 cookie 配置与网络连通性；若 cookie 无效会返回上游真实错误。
+   */
+  @Post('hedra/test')
+  async hedraTest(@CurrentUser() user: AuthUser, @Body('text') text?: string) {
+    const data = await this.hedraTestCall(user, text || 'a woman talking to camera');
+    return { code: 0, message: 'ok', data };
+  }
+
+  private async hedraTestCall(user: AuthUser, text: string) {
+    // 优先用用户个人 Hedra cookie，缺省回退全局 .env HEDRA_COOKIE_PATH
+    const raw = await resolveUserHedraCookie(this.prisma, user.id);
+    return this.hedra.generatePrompt({ text }, raw);
   }
 
   /**

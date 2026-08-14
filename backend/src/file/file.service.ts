@@ -113,6 +113,23 @@ export class FileService {
   }
 
   /**
+   * 按 id 读取文件并返回 base64 data URL（供即梦等需要字节上传的场景使用）。
+   * 相对 url（/files/...）无法直接外发，统一在此转成 data URL。
+   */
+  async getFileDataUrl(id: string): Promise<string | null> {
+    const file = await this.getFile(id);
+    if (!file) return null;
+    const fullPath = this.getFilePath(file.url);
+    if (!fullPath) return null;
+    try {
+      const buf = fs.readFileSync(fullPath);
+      return `data:${file.mimetype};base64,${buf.toString('base64')}`;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * 删除文件
    */
   async deleteFile(id: string): Promise<boolean> {

@@ -61,6 +61,11 @@ model User {
   runninghubKeyEnc String?   @map("runninghub_key_enc")
   runninghubKeyAt  DateTime? @map("runninghub_key_at")
 
+  // Hedra 提示词扩写用的个人 cookie（加密存储）。工作区调用 Hedra 时优先用此值，
+  // 缺省回退到全局 .env 的 HEDRA_COOKIE_PATH。
+  hedraCookieEnc String?   @map("hedra_cookie_enc")
+  hedraCookieAt   DateTime? @map("hedra_cookie_at")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -125,6 +130,10 @@ model CharacterImage {
   localPath   String?  @map("local_path")
   prompt      String?
   model       String?
+  // 风格/背景描述（同一形象下不同背景/风格的多张图，用于前端折叠分组）
+  style       String?  @map("style")
+  // 入库状态：active=已入库；pending_review=待审核（批量导入时）
+  status      String   @default("active") @map("status")
   createdBy   String?  @map("created_by")
   createdAt   DateTime @default(now()) @map("created_at")
 
@@ -132,6 +141,25 @@ model CharacterImage {
 
   @@index([characterId])
   @@map("character_images")
+}
+
+// 素材索引（仅 URL + 文本工作信息，不再本地存原文件、不向前端共享展示）
+// 由后端通过 /api/assets/sync 全量同步维护
+model Asset {
+  id          String   @id @default(uuid())
+  kind        String // image | video | audio
+  url         String   @unique
+  title       String?
+  description String?
+  tags        String[]
+  // 对应的工作信息（提示词、参数、来源任务等），自由结构
+  workInfo    Json?    @map("work_info")
+  source      String? // 来源标识（如 runninghub / character-gen / external）
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([kind])
+  @@map("assets")
 }
 
 // 歌曲库（全站共享，P1 音乐信息 / P2 参考音频 / P3 对口型音频）

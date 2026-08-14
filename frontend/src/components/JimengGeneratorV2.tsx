@@ -74,8 +74,11 @@ const VIDEO_MODELS = [
   { value: 'seedance-1.0-pro', label: '即梦 Seedance 1.0 pro' },
 ];
 const IMAGE_MODELS = [
-  { value: 'jimeng-2.1', label: '即梦图片 2.1' },
-  { value: 'jimeng-2.0', label: '即梦图片 2.0' },
+  { value: 'jimeng-5.0', label: '即梦图片 5.0' },
+  { value: 'jimeng-4.6', label: '即梦图片 4.6' },
+  { value: 'jimeng-4.5', label: '即梦图片 4.5' },
+  { value: 'jimeng-4.1', label: '即梦图片 4.1' },
+  { value: 'jimeng-4.0', label: '即梦图片 4.0' },
 ];
 
 // ================= 积分预估 =================
@@ -421,7 +424,7 @@ export default function JimengGeneratorV2({
   // ========== 状态 ==========
   const [prompt, setPrompt] = useState('');
   const [videoModel, setVideoModel] = useState('seedance-2.0-mini');
-  const [imageModel, setImageModel] = useState('jimeng-2.1');
+  const [imageModel, setImageModel] = useState('jimeng-5.0');
   const [ratio, setRatio] = useState('16:9');
   const [resolution, setResolution] = useState('720P');
   const [duration, setDuration] = useState(10);

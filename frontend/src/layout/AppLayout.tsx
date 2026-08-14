@@ -26,13 +26,10 @@ const { Sider, Header, Content } = Layout;
 
 const baseMenuItems = [
   { key: '/dashboard', icon: <DashboardOutlined />, label: '概览' },
-  { key: '/inspiration', icon: <CustomerServiceOutlined />, label: '获取灵感' },
-  { key: '/character-gen', icon: <PictureOutlined />, label: '生成形象' },
-  { key: '/video', icon: <VideoCameraOutlined />, label: '视频生成' },
+  { key: '/video-workspace', icon: <VideoCameraOutlined />, label: '视频工作区' },
   { key: '/libraries/characters', icon: <TeamOutlined />, label: '形象库' },
   { key: '/libraries/songs', icon: <SoundOutlined />, label: '歌曲库' },
   { key: '/libraries/prompts', icon: <FileTextOutlined />, label: '提示词库' },
-  { key: '/libraries/media', icon: <FolderOpenOutlined />, label: '素材库' },
   { key: '/tasks', icon: <HistoryOutlined />, label: '任务管理' },
   { key: '/task-logs', icon: <HistoryOutlined />, label: '任务日志' },
   { key: '/jimeng-gen', icon: <ThunderboltOutlined />, label: '即梦生成' },

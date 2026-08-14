@@ -138,9 +138,12 @@ export class AssetResolverService implements OnModuleInit {
         include: { character: true },
       });
       if (!img) throw new BadRequestException('所选形象图片不存在');
+      // 形象库图片可能只有相对 /api/files/:id（localPath 为空），补齐本地路径，
+      // 否则 Hedra（需内联字节）与 RunningHub（需本地文件）会拿不到素材。
+      const localPath = img.localPath || (await this.localPathFromUploadUrl(img.url));
       out.push({
-        url: await this.toImageUrl(img.url, img.localPath),
-        localPath: img.localPath,
+        url: await this.toImageUrl(img.url, localPath),
+        localPath,
         source: 'character',
         name: img.character?.name,
         description: img.character?.description,
@@ -156,9 +159,10 @@ export class AssetResolverService implements OnModuleInit {
       const pick = c.images[0];
       const url = pick?.url || c.coverUrl;
       if (!url) throw new BadRequestException(`形象「${c.name}」还没有任何图片`);
+      const localPath = pick?.localPath || (await this.localPathFromUploadUrl(url));
       out.push({
-        url: await this.toImageUrl(url, pick?.localPath ?? null),
-        localPath: pick?.localPath ?? null,
+        url: await this.toImageUrl(url, localPath),
+        localPath,
         source: 'character',
         name: c.name,
         description: c.description,
@@ -189,9 +193,11 @@ export class AssetResolverService implements OnModuleInit {
       if (!s.url && !s.localPath) {
         throw new BadRequestException(`歌曲《${s.title}》没有音频文件，请先在歌曲库补充`);
       }
+      // 同参考图：歌曲若只有相对 /api/files/:id，补齐本地路径供 Hedra/RunningHub 使用。
+      const localPath = s.localPath || (await this.localPathFromUploadUrl(s.url));
       return {
         url: s.url || undefined,
-        localPath: s.localPath,
+        localPath,
         title: s.title,
         artist: s.artist || undefined,
         lyrics: s.lyrics || undefined,
@@ -224,6 +230,20 @@ export class AssetResolverService implements OnModuleInit {
       s.lyrics ? `歌词片段：${s.lyrics.slice(0, 600)}` : '',
     ].filter(Boolean);
     return bits.join('\n');
+  }
+
+  /**
+   * 素材库（形象库/歌曲库）记录往往只存了相对 url（/api/files/:id）而 localPath 为空。
+   * 该 url 一定对应一条 upload 记录，这里把 id 解析出来取回真实磁盘 localPath，
+   * 让下游 Hedra（内联字节）/ RunningHub（本地上传）能直接拿到文件，无需经 HTTP 中转。
+   * 解析失败（如外部 URL）时返回 null，由调用方回退到 url。
+   */
+  private async localPathFromUploadUrl(url?: string | null): Promise<string | null> {
+    if (!url) return null;
+    const m = /\/api\/files\/([^/?#]+)/.exec(url);
+    if (!m) return null;
+    const up = await this.prisma.upload.findUnique({ where: { id: m[1] } });
+    return up?.localPath || null;
   }
 
   private async requireUpload(user: AuthUser, id: string, kind: 'image' | 'audio') {

@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  Patch,
   Post,
   Put,
   Query,
@@ -21,6 +22,8 @@ import {
   BatchImportCharactersDto,
   BatchImportSongsDto,
   BatchImportPromptsDto,
+  AppendCharacterImagesDto,
+  PatchCharacterImageDto,
 } from './dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -33,8 +36,8 @@ export class LibrariesController {
 
   // 形象库
   @Get('characters')
-  async listCharacters(@Query() q: PaginationDto) {
-    const data = await this.libs.listCharacters(q);
+  async listCharacters(@Query() q: PaginationDto, @Query('status') status?: string) {
+    const data = await this.libs.listCharacters(q, status);
     return { code: 0, message: 'ok', data };
   }
   @Get('characters/:id')
@@ -61,6 +64,30 @@ export class LibrariesController {
   @Post('characters/:id/archive')
   async archiveCharacter(@Param('id') id: string) {
     const data = await this.libs.archiveCharacter(id);
+    return { code: 0, message: 'ok', data };
+  }
+  /** 向已有形象追加多张不同风格/背景的图（内部版多图需求） */
+  @Post('characters/:id/images')
+  async appendCharacterImages(
+    @Param('id') id: string,
+    @Body() dto: AppendCharacterImagesDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    const data = await this.libs.appendCharacterImages(id, dto, user);
+    return { code: 0, message: 'ok', data };
+  }
+  @Delete('characters/:id/images/:imageId')
+  async deleteCharacterImage(@Param('id') id: string, @Param('imageId') imageId: string) {
+    const data = await this.libs.deleteCharacterImage(id, imageId);
+    return { code: 0, message: 'ok', data };
+  }
+  @Patch('characters/:id/images/:imageId')
+  async patchCharacterImage(
+    @Param('id') id: string,
+    @Param('imageId') imageId: string,
+    @Body() dto: PatchCharacterImageDto,
+  ) {
+    const data = await this.libs.patchCharacterImage(id, imageId, dto);
     return { code: 0, message: 'ok', data };
   }
   /** 批量导入形象 */

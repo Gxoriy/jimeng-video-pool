@@ -17,6 +17,9 @@ export class ImportFromTextDto {
 
   /** 同名(歌名+作者)已存在时覆盖，默认跳过 */
   @IsOptional() @IsBoolean() overwrite?: boolean;
+
+  /** 是否启用 AI 识别分类（默认 true）。false 时跳过 AI，直接以 active 入库。 */
+  @IsOptional() @IsBoolean() enableAi?: boolean;
 }
 
 /**
@@ -28,6 +31,9 @@ export class ImportFromUploadDto {
   uploadIds: string[];
 
   @IsOptional() @IsBoolean() overwrite?: boolean;
+
+  /** 是否启用 AI 识别分类（默认 true）。false 时跳过 AI，直接以 active 入库。 */
+  @IsOptional() @IsBoolean() enableAi?: boolean;
 }
 
 /** 单首歌的 AI 识别结果 */

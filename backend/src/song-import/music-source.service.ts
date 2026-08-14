@@ -1,10 +1,20 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { EgressHttpService } from '../egress/egress-http.service';
+import axios, { AxiosRequestConfig } from 'axios';
+import { EgressService } from '../egress/egress.service';
 import { NetworkScope } from '../common/roles.enum';
 import * as path from 'path';
 import * as fs from 'fs/promises';
+import * as https from 'https';
 import { v4 as uuid } from 'uuid';
+
+/**
+ * 音乐聚合源（如 kw-api.cenguigui.cn 及其 mp3 CDN）的 HTTPS 证书经常过期，
+ * 导致 axios 默认校验报错 `certificate has expired`。该源为受信的 BROAD 出站下载，
+ * 且仍受 EgressGuard 的 DNS 内网拦截保护，故对其请求跳过证书校验（仅限本服务）。
+ * 切勿将此 agent 用于其它业务请求。
+ */
+const INSECURE_HTTPS_AGENT = new https.Agent({ rejectUnauthorized: false });
 
 export interface ParsedSong {
   song: string;
@@ -39,7 +49,7 @@ export class MusicSourceService {
 
   constructor(
     private config: ConfigService,
-    private http: EgressHttpService,
+    private egress: EgressService,
   ) {
     this.base = (
       this.config.get<string>('app.musicSourceBase') ||
@@ -71,14 +81,40 @@ export class MusicSourceService {
     return out;
   }
 
+  /**
+   * 对受信音乐源发起 GET，跳过 HTTPS 证书校验（解决证书过期问题）。
+   * 仍先经 EgressService 做 SSRF / 内网拦截，不破坏出站安全策略。
+   */
+  private async insecureGet(url: string, config: AxiosRequestConfig = {}) {
+    await this.egress.assertAllowed(url, NetworkScope.BROAD);
+    try {
+      return await axios.get(url, {
+        ...config,
+        httpsAgent: INSECURE_HTTPS_AGENT,
+        beforeRedirect: (options) => {
+          // 重定向到新 host（尤其是 mp3 CDN）时继续复用不校验 agent
+          options.httpsAgent = INSECURE_HTTPS_AGENT;
+          options.agent = INSECURE_HTTPS_AGENT;
+        },
+      });
+    } catch (err: any) {
+      this.logger.warn(`[insecureGet] ${url} 失败: ${err?.message}`);
+      throw err;
+    }
+  }
+
   /** 搜索 + 取详情，返回可直接下载的元数据 */
   async fetchSong(song: string, artist: string): Promise<SongMeta> {
     const kw = artist && artist !== '空' ? `${song} ${artist}` : song;
 
     const searchUrl = `${this.base}/?name=${encodeURIComponent(kw)}&page=1&limit=1`;
-    const sResp = await this.http.get(searchUrl, NetworkScope.BROAD, {
-      timeout: 20000,
-    });
+    const sResp = await this.insecureGet(searchUrl, { timeout: 20000 });
+    const raw = sResp.data;
+    // 防御：聚合源偶尔返回空串/HTML，给出清晰报错而非「未找到歌曲」
+    if (typeof raw === 'string' || !raw || (typeof raw === 'object' && !Array.isArray(raw) && !raw.data)) {
+      this.logger.warn(`[fetchSong] 音乐源返回非预期内容: ${typeof raw === 'string' ? raw.slice(0, 120) : JSON.stringify(raw).slice(0, 120)}`);
+      throw new BadRequestException('音乐聚合源返回异常（非预期 JSON），请检查 app.musicSourceBase 配置或该源是否可用');
+    }
     const list: any[] =
       sResp.data?.data && Array.isArray(sResp.data.data)
         ? sResp.data.data
@@ -91,9 +127,7 @@ export class MusicSourceService {
     }
 
     const detailUrl = `${this.base}/?id=${encodeURIComponent(first.rid)}&type=song&level=exhigh`;
-    const dResp = await this.http.get(detailUrl, NetworkScope.BROAD, {
-      timeout: 20000,
-    });
+    const dResp = await this.insecureGet(detailUrl, { timeout: 20000 });
     const d = dResp.data?.data || dResp.data;
     const mp3Url: string | undefined = d?.url;
     if (!mp3Url) {
@@ -122,7 +156,7 @@ export class MusicSourceService {
       /* 忽略，默认 .mp3 */
     }
     const dest = path.join(this.storeDir, `${uuid()}${ext}`);
-    const resp = await this.http.get(mp3Url, NetworkScope.BROAD, {
+    const resp = await this.insecureGet(mp3Url, {
       responseType: 'arraybuffer',
       timeout: 120000,
     });

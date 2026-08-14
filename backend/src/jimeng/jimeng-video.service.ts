@@ -41,10 +41,10 @@ export class JimengVideoService {
     }
 
     const firstFrame = params.firstFrameUploadId
-      ? (await this.fileService.getFile(params.firstFrameUploadId).then(f => f?.url).catch(() => '')) || ''
+      ? (await this.fileService.getFileDataUrl(params.firstFrameUploadId).catch(() => '')) || ''
       : '';
     const endFrame = params.endFrameUploadId
-      ? (await this.fileService.getFile(params.endFrameUploadId).then(f => f?.url).catch(() => '')) || ''
+      ? (await this.fileService.getFileDataUrl(params.endFrameUploadId).catch(() => '')) || ''
       : '';
 
     const referenceUrls = await this.resolveReferenceUrls(params.references || []);
@@ -67,7 +67,7 @@ export class JimengVideoService {
       },
     });
 
-    void this.executeGenerate(localId, account.sessionid, {
+    void this.executeGenerate(localId, account.id, account.sessionid, {
       prompt: processedPrompt, model, ratio, resolution, duration,
       firstFrame, endFrame, referenceMode, referenceUrls,
     }).catch((err) => {
@@ -168,10 +168,13 @@ export class JimengVideoService {
   private async resolveReferenceUrls(references: ReferenceItemDto[]): Promise<string[]> {
     const urls: string[] = [];
     for (const ref of references) {
-      if (ref.url) { urls.push(ref.url); continue; }
+      if (ref.url && (ref.url.startsWith('http://') || ref.url.startsWith('https://') || ref.url.startsWith('data:'))) {
+        urls.push(ref.url);
+        continue;
+      }
       if (ref.uploadId) {
-        const f = await this.fileService.getFile(ref.uploadId).catch(() => null);
-        if (f?.url) urls.push(f.url);
+        const dataUrl = await this.fileService.getFileDataUrl(ref.uploadId).catch(() => null);
+        if (dataUrl) urls.push(dataUrl);
       }
     }
     return urls;
@@ -179,45 +182,50 @@ export class JimengVideoService {
 
   private async executeGenerate(
     localId: string,
+    accountId: string,
     encryptedSessionid: string,
     opts: {
       prompt: string; model: string; ratio: string; resolution: string; duration: number;
       firstFrame: string; endFrame: string; referenceMode: OmniReferenceMode; referenceUrls: string[];
     },
   ) {
-    let sessionid: string;
-    try { sessionid = decrypt(encryptedSessionid); } catch { sessionid = ''; }
-    if (!sessionid) {
-      await this.prisma.jimengTask.update({ where: { taskId: localId }, data: { status: 'failed', resultJson: { error: '账号sessionid无法解密' } } }).catch(() => {});
-      return;
+    try {
+      let sessionid: string;
+      try { sessionid = decrypt(encryptedSessionid); } catch { sessionid = ''; }
+      if (!sessionid) {
+        await this.prisma.jimengTask.update({ where: { taskId: localId }, data: { status: 'failed', resultJson: { error: '账号sessionid无法解密' } } }).catch(() => {});
+        return;
+      }
+
+      await this.prisma.jimengTask.update({ where: { taskId: localId }, data: { status: 'processing', progress: '10' } });
+
+      const result = await this.core.generateVideo(sessionid, {
+        prompt: opts.prompt, model: opts.model, ratio: opts.ratio, resolution: opts.resolution, duration: opts.duration,
+        firstFrameImage: opts.firstFrame || undefined, endFrameImage: opts.endFrame || undefined,
+        referenceImages: opts.referenceUrls,
+        referenceMode: opts.referenceMode !== OmniReferenceMode.OFF ? opts.referenceMode : undefined,
+      }, NetworkScope.RESTRICTED);
+
+      // 回填即梦外部 task_id
+      await this.prisma.jimengTask.update({
+        where: { taskId: localId },
+        data: { progress: '30', resultJson: { externalTaskId: result.task_id } },
+      });
+
+      // 轮询
+      let attempts = 0;
+      while (attempts < 120) {
+        await new Promise(r => setTimeout(r, 5000));
+        attempts++;
+        const updated = await this.pollAndUpdate(localId);
+        if (updated.status === 'completed' || updated.status === 'failed') return;
+      }
+      await this.prisma.jimengTask.update({
+        where: { taskId: localId },
+        data: { status: 'failed', resultJson: { error: '生成超时（超过10分钟）' } },
+      }).catch(() => {});
+    } finally {
+      this.accountService.release(accountId);
     }
-
-    await this.prisma.jimengTask.update({ where: { taskId: localId }, data: { status: 'processing', progress: '10' } });
-
-    const result = await this.core.generateVideo(sessionid, {
-      prompt: opts.prompt, ratio: opts.ratio, resolution: opts.resolution, duration: opts.duration,
-      firstFrameImage: opts.firstFrame || undefined, endFrameImage: opts.endFrame || undefined,
-      referenceImages: opts.referenceUrls,
-      referenceMode: opts.referenceMode !== OmniReferenceMode.OFF ? opts.referenceMode : undefined,
-    }, NetworkScope.RESTRICTED);
-
-    // 回填即梦外部 task_id
-    await this.prisma.jimengTask.update({
-      where: { taskId: localId },
-      data: { progress: '30', resultJson: { externalTaskId: result.task_id } },
-    });
-
-    // 轮询
-    let attempts = 0;
-    while (attempts < 120) {
-      await new Promise(r => setTimeout(r, 5000));
-      attempts++;
-      const updated = await this.pollAndUpdate(localId);
-      if (updated.status === 'completed' || updated.status === 'failed') return;
-    }
-    await this.prisma.jimengTask.update({
-      where: { taskId: localId },
-      data: { status: 'failed', resultJson: { error: '生成超时（超过10分钟）' } },
-    }).catch(() => {});
   }
 }

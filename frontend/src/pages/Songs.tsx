@@ -10,6 +10,7 @@ import {
   Select,
   Space,
   Tag,
+  Checkbox,
   message,
   Tabs,
   Upload,
@@ -95,6 +96,7 @@ export default function Songs() {
   const [importing, setImporting] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
   const [importResult, setImportResult] = useState<SongImportResult | null>(null);
+  const [enableAi, setEnableAi] = useState(true);
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -223,7 +225,7 @@ export default function Songs() {
           setImporting(false);
           return;
         }
-        res = await importSongsFromText(lines.join('\n'));
+        res = await importSongsFromText(lines.join('\n'), false, enableAi);
       } else {
         if (!files.length) {
           message.warning('请先选择本地音频文件');
@@ -236,7 +238,7 @@ export default function Songs() {
           ids.push(up.id);
           setImportProgress(Math.round(((i + 1) / files.length) * 100));
         }
-        res = await importSongsFromUpload(ids);
+        res = await importSongsFromUpload(ids, false, enableAi);
       }
       setImportResult(res);
       loadReview();
@@ -406,6 +408,13 @@ export default function Songs() {
           },
         ]}
       />
+      <Checkbox
+        checked={enableAi}
+        onChange={(e) => setEnableAi(e.target.checked)}
+        style={{ marginTop: 12 }}
+      >
+        AI 智能分类（取消勾选则跳过 AI，直接以「已入库」状态添加）
+      </Checkbox>
       <Space style={{ marginTop: 12 }}>
         <Button type="primary" loading={importing} onClick={doImport}>
           开始导入
@@ -452,6 +461,11 @@ export default function Songs() {
                     <Tag key={t}>{t}</Tag>
                   ))}
                   {it.category && <Tag color="blue">{it.category}</Tag>}
+                  {it.aiUsed ? (
+                    <Tag color="blue">AI识别</Tag>
+                  ) : (
+                    <Tag>未走AI·文件名猜测</Tag>
+                  )}
                   {it.skipped && <Tag color="default">已存在·跳过</Tag>}
                   {it.error && <Tag color="red">{it.error}</Tag>}
                 </Space>

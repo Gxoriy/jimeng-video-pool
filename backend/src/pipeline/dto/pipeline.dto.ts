@@ -21,6 +21,11 @@ export class CharacterGenDto {
   @IsOptional() @IsString() channelId?: string;
   @IsOptional() @IsString() model?: string;
 
+  /** 生成来源：ai = 管理员配置的 AI 渠道（默认）；jimeng = 即梦原生生成 */
+  @IsOptional() @IsString() source?: 'ai' | 'jimeng';
+  /** 即梦模型（source=jimeng 时生效），如 jimeng-2.1 / jimeng-2.0-pro */
+  @IsOptional() @IsString() jimengModel?: string;
+
   /** 提示词：promptId 与 promptText 至少给一个 */
   @IsOptional() @IsString() promptId?: string;
   @IsOptional() @IsString() promptText?: string;
@@ -38,6 +43,10 @@ export class CharacterGenDto {
   @IsOptional() @IsString() songId?: string;
 
   @IsOptional() @IsString() size?: string;
+  /** 比例（即梦原生参数，如 16:9 / 9:16 / 1:1 / 3:4 / 4:3）；source=jimeng 时优先于 size 推导 */
+  @IsOptional() @IsString() ratio?: string;
+  /** 画质/分辨率：即梦支持 1k / 2k / 4k；AI 渠道作为 quality 提示透传 */
+  @IsOptional() @IsString() resolution?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(4) n?: number;
 
   /** 结果落库：挂到已有形象，或用该名称新建形象条目 */

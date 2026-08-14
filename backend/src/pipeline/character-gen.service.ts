@@ -2,11 +2,14 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { MediaService } from '../media/media.service';
 import { AuthUser } from '../auth/auth.service';
-import { Executor, TaskType } from '../common/roles.enum';
+import { Executor, NetworkScope, TaskType } from '../common/roles.enum';
 import { AiChannelClient } from './clients/ai-channel.client';
 import { AssetResolverService } from './asset-resolver.service';
 import { TaskRecorderService } from './task-recorder.service';
 import { CharacterGenDto } from './dto/pipeline.dto';
+import { JimengCoreService } from '../jimeng/jimeng-core.service';
+import { JimengAccountService } from '../jimeng/jimeng-account.service';
+import { decrypt } from '../common/utils/encryption.util';
 
 /**
  * ============ P1 · 生成形象 ============
@@ -26,16 +29,15 @@ export class CharacterGenService {
     private assets: AssetResolverService,
     private media: MediaService,
     private recorder: TaskRecorderService,
+    private jimengCore: JimengCoreService,
+    private jimengAccounts: JimengAccountService,
   ) {}
 
   async generate(user: AuthUser, dto: CharacterGenDto) {
     // ---- 1. 提示词（必填）----
     const promptText = await this.resolvePrompt(dto);
 
-    // ---- 2. 渠道 ----
-    const channel = await this.ai.resolve('character', dto.channelId, dto.model);
-
-    // ---- 3. 参考图（可选）+ 音乐信息（可选）----
+    // ---- 2. 参考图（可选）+ 音乐信息（可选）----
     const refs = await this.assets.resolveImages(user, {
       urls: dto.referenceImageUrls,
       uploadId: dto.imageUploadId,
@@ -43,10 +45,43 @@ export class CharacterGenService {
       characterImageId: dto.referenceCharacterImageId,
     });
     const songInfo = await this.assets.songInfo(dto.songId);
-
     const finalPrompt = this.composePrompt(promptText, songInfo, refs.length > 0);
 
-    // ---- 4. 建任务 ----
+    // ---- 3. 即梦原生生成分支 ----
+    if (dto.source === 'jimeng') {
+      const model = dto.jimengModel || 'jimeng-5.0';
+      const task = await this.recorder.start({
+        userId: user.id,
+        type: TaskType.character,
+        prompt: finalPrompt,
+        provider: Executor.JIMENG,
+        model,
+        params: {
+          stage: 'P1',
+          source: 'jimeng',
+          jimengModel: model,
+          promptId: dto.promptId,
+          songId: dto.songId,
+          referenceImages: refs.map((r) => (r.url.startsWith('data:') ? '[inline]' : r.url)),
+          size: dto.size,
+          n: dto.n,
+        },
+      });
+      await this.recorder.log(
+        task.id,
+        'info',
+        `P1 生成形象（即梦）｜模型=${model}｜参考图=${refs.length} 张｜音乐信息=${songInfo ? '有' : '无'}`,
+      );
+      this.runJimeng(task.id, user, finalPrompt, refs[0]?.url, model, dto).catch((e) =>
+        this.recorder.fail(task.id, e),
+      );
+      return { taskId: task.id, status: 'running', prompt: finalPrompt };
+    }
+
+    // ---- 4. AI 渠道分支 ----
+    const channel = await this.ai.resolve('character', dto.channelId, dto.model);
+
+    // ---- 5. 建任务 ----
     const task = await this.recorder.start({
       userId: user.id,
       type: TaskType.character,
@@ -60,6 +95,8 @@ export class CharacterGenService {
         promptId: dto.promptId,
         songId: dto.songId,
         referenceImages: refs.map((r) => r.localPath || (r.url.startsWith('data:') ? '[inline]' : r.url)),
+        ratio: dto.ratio,
+        resolution: dto.resolution,
         size: dto.size,
         n: dto.n,
       },
@@ -71,12 +108,93 @@ export class CharacterGenService {
       `P1 生成形象｜渠道=${channel.name}｜模型=${channel.model}｜参考图=${refs.length} 张｜音乐信息=${songInfo ? '有' : '无'}`,
     );
 
-    // ---- 5. 异步执行 ----
+    // ---- 6. 异步执行 ----
     this.run(task.id, user, channel, finalPrompt, refs.map((r) => r.url), dto).catch((e) =>
       this.recorder.fail(task.id, e),
     );
 
     return { taskId: task.id, status: 'running', prompt: finalPrompt };
+  }
+
+  /** 即梦分支：直连原生 aigc_draft，阻塞轮询到完成，复用 proven 的 core 方法 */
+  private async runJimeng(
+    taskId: string,
+    user: AuthUser,
+    prompt: string,
+    referenceImageUrl: string | undefined,
+    model: string,
+    dto: CharacterGenDto,
+  ) {
+    const account = await this.jimengAccounts.selectOne();
+    if (!account) {
+      throw new BadRequestException('没有可用的即梦账号，请先在「即梦账号池」中导入并激活账号');
+    }
+    try {
+      const sessionid = decrypt(account.sessionid);
+      if (!sessionid) {
+        throw new BadRequestException('即梦账号 sessionid 无法解密，请重新导入账号');
+      }
+
+      const ratio = dto.ratio || this.mapSizeToRatio(dto.size);
+      const resolution = dto.resolution || '2k';
+      const { task_id } = await this.jimengCore.generateImage(
+        sessionid,
+        { prompt, ratio, resolution, model, imageUrl: referenceImageUrl || undefined },
+        NetworkScope.RESTRICTED,
+      );
+      await this.recorder.log(taskId, 'info', `即梦已提交，外部任务=${task_id}`);
+
+      let images: string[] = [];
+      for (let i = 0; i < 60; i++) {
+        await new Promise((r) => setTimeout(r, 5000));
+        const r = await this.jimengCore.queryImageResult(task_id, sessionid, NetworkScope.RESTRICTED);
+        if (r.status_code === 2) {
+          images = r.images || [];
+          break;
+        }
+        if (r.status_code === 3) {
+          throw new BadRequestException(`即梦生成失败：${r.status_msg || '未知错误'}`);
+        }
+      }
+      if (!images.length) {
+        throw new BadRequestException('即梦生成超时或未产出图片');
+      }
+
+      const resultUrls: string[] = [];
+      const localPaths: Array<string | null> = [];
+      for (const url of images) {
+        resultUrls.push(url);
+        try {
+          const lp = await this.media.download(url, NetworkScope.RESTRICTED);
+          localPaths.push(lp);
+          await this.prisma.media.create({
+            data: { taskId, type: 'image', url, localPath: lp },
+          });
+        } catch (e: any) {
+          await this.recorder.log(taskId, 'warn', `图片下载失败：${e?.message}`);
+        }
+      }
+      if (!resultUrls.length) throw new BadRequestException('未产出任何图片');
+
+      await this.saveToLibrary(taskId, user, dto, prompt, model, resultUrls, localPaths);
+      await this.recorder.succeed(taskId, { urls: resultUrls, localPaths });
+    } finally {
+      this.jimengAccounts.release(account.id);
+    }
+  }
+
+  /** 把 AI 渠道的 size（如 1024x1024 / 1:1）粗略映射到即梦 ratio */
+  private mapSizeToRatio(size?: string): string {
+    if (!size) return '1:1';
+    if (size.includes(':')) return size;
+    const m = /(\d+)\s*[xX]\s*(\d+)/.exec(size);
+    if (!m) return '1:1';
+    const w = Number(m[1]);
+    const h = Number(m[2]);
+    const r = w / h;
+    if (r > 1.3) return '16:9';
+    if (r >= 0.75) return '1:1';
+    return '3:4';
   }
 
   private async run(
@@ -90,12 +208,14 @@ export class CharacterGenService {
     const { urls, b64 } = await this.ai.generateImage(channel, user.networkScope, prompt, {
       size: dto.size,
       n: dto.n,
+      ratio: dto.ratio,
+      quality: dto.resolution,
       referenceImageUrls,
     });
     await this.recorder.log(taskId, 'info', `渠道返回 ${urls.length} 个 URL / ${b64.length} 个 base64`);
 
     const resultUrls: string[] = [];
-    const localPaths: string[] = [];
+    const localPaths: Array<string | null> = [];
 
     for (const url of urls) {
       resultUrls.push(url);

@@ -30,6 +30,7 @@ export interface CharacterImage {
   url: string;
   prompt?: string;
   model?: string;
+  style?: string;
   createdAt: string;
 }
 
@@ -75,11 +76,14 @@ export interface TaskDetail {
   prompt?: string;
   resultUrls?: string[];
   resultText?: string;
-  /** 结构化结果（获取灵感产出的 {characterPrompt, actionPrompt}） */
-  resultData?: { characterPrompt?: string; actionPrompt?: string } | null;
+  /** 结构化结果（获取灵感/工作区产出的 {characterPrompt, actionPrompt, promptSource}） */
+  resultData?: { characterPrompt?: string; actionPrompt?: string; promptSource?: string } | null;
   errorMessage?: string;
   createdAt: string;
   finishedAt?: string;
+  /** 工作区任务阶段：prompt_expansion / video_generation */
+  params?: { stage?: string; [k: string]: any };
+  media?: { url: string; type: string }[];
 }
 
 /* ---------------- 通用取数 ---------------- */
@@ -142,6 +146,30 @@ export const listCharactersPage = (params: {
 export const archiveCharacter = (id: string) =>
   api.post(`/libraries/characters/${id}/archive`, {}).then(unwrap);
 
+/** 删除形象（同步删除其下所有风格图） */
+export const deleteCharacter = (id: string) =>
+  api.delete(`/libraries/characters/${id}`).then(unwrap);
+
+/** 获取单个形象的完整信息（含全部多张风格图） */
+export const getCharacter = (id: string) =>
+  api.get(`/libraries/characters/${id}`).then(unwrap) as Promise<Character>;
+
+/** 人工编辑形象信息：改名 / 分类 / 贴标签 / 描述 */
+export const updateCharacter = (id: string, payload: { name?: string; category?: string; tags?: string[]; description?: string }) =>
+  api.put(`/libraries/characters/${id}`, payload).then(unwrap) as Promise<Character>;
+
+/** 向已有形象追加多张不同风格/背景的图 */
+export const appendCharacterImages = (id: string, payload: { urls?: string[]; uploadIds?: string[]; style?: string; prompt?: string }) =>
+  api.post(`/libraries/characters/${id}/images`, payload).then(unwrap);
+
+/** 删除形象下某张图 */
+export const deleteCharacterImage = (id: string, imageId: string) =>
+  api.delete(`/libraries/characters/${id}/images/${imageId}`).then(unwrap);
+
+/** 修改某张图的风格/提示词/URL */
+export const patchCharacterImage = (id: string, imageId: string, payload: { style?: string; prompt?: string; url?: string }) =>
+  api.patch(`/libraries/characters/${id}/images/${imageId}`, payload).then(unwrap);
+
 /** 调用 AI 对指定提示词智能分类（返回 {category, tags}） */
 export const classifyPrompt = (id: string) =>
   api.post(`/libraries/prompts/${id}/classify`, {}).then(unwrap) as Promise<{
@@ -165,6 +193,8 @@ export interface SongImportItemResult {
   language?: string;
   description?: string;
   lyrics?: string;
+  /** 本条是否真正走了 AI 识别（false=降级为原始信息 + 待分类） */
+  aiUsed?: boolean;
   error?: string;
 }
 
@@ -176,16 +206,16 @@ export interface SongImportResult {
   items: SongImportItemResult[];
 }
 
-/** 方式一：「歌名-作者」文本自动下载 + AI 识别 */
-export const importSongsFromText = (text: string, overwrite = false) =>
+/** 方式一：「歌名-作者」文本自动下载 + AI 识别（enableAi=false 时跳过 AI 直接入库） */
+export const importSongsFromText = (text: string, overwrite = false, enableAi = true) =>
   api
-    .post('/song-import/from-text', { text, overwrite })
+    .post('/song-import/from-text', { text, overwrite, enableAi })
     .then(unwrap) as Promise<SongImportResult>;
 
-/** 方式二：本地上传音频文件已拿到 uploadId，提交做 AI 识别 */
-export const importSongsFromUpload = (uploadIds: string[], overwrite = false) =>
+/** 方式二：本地上传音频文件已拿到 uploadId，提交做 AI 识别（enableAi=false 时跳过 AI 直接入库） */
+export const importSongsFromUpload = (uploadIds: string[], overwrite = false, enableAi = true) =>
   api
-    .post('/song-import/from-upload', { uploadIds, overwrite })
+    .post('/song-import/from-upload', { uploadIds, overwrite, enableAi })
     .then(unwrap) as Promise<SongImportResult>;
 
 /** 对已入库歌曲重新执行 AI 识别 */
@@ -213,6 +243,8 @@ export interface CharacterImportItemResult {
   category?: string;
   tags?: string[];
   description?: string;
+  /** 本条是否真正走了 AI 视觉识别（false=降级为文件名猜测） */
+  aiUsed?: boolean;
   error?: string;
 }
 
@@ -224,10 +256,10 @@ export interface CharacterImportResult {
   items: CharacterImportItemResult[];
 }
 
-/** 本地上传图片(已拿到 uploadId) → 视觉 AI 识别并进入待审核 */
-export const importCharactersFromUpload = (uploadIds: string[], overwrite = false) =>
+/** 本地上传图片(已拿到 uploadId) → 视觉 AI 识别并进入待审核（enableAi=false 时跳过 AI 直接入库） */
+export const importCharactersFromUpload = (uploadIds: string[], overwrite = false, enableAi = true) =>
   api
-    .post('/character-import/from-upload', { uploadIds, overwrite })
+    .post('/character-import/from-upload', { uploadIds, overwrite, enableAi })
     .then(unwrap) as Promise<CharacterImportResult>;
 
 export const listPrompts = (type: 'character' | 'action', tag?: string) =>
@@ -276,6 +308,10 @@ export const listUploads = (kind?: 'image' | 'audio') =>
 export interface CharacterGenPayload {
   channelId?: string;
   model?: string;
+  /** 生成来源：ai = 管理员配置的 AI 渠道（默认）；jimeng = 即梦原生生成 */
+  source?: 'ai' | 'jimeng';
+  /** 即梦模型（source=jimeng 时生效） */
+  jimengModel?: string;
   promptId?: string;
   promptText?: string;
   imageUploadId?: string;
@@ -283,6 +319,10 @@ export interface CharacterGenPayload {
   referenceCharacterImageId?: string;
   songId?: string;
   size?: string;
+  /** 比例（即梦原生参数，如 16:9 / 9:16 / 1:1 / 3:4 / 4:3） */
+  ratio?: string;
+  /** 画质/分辨率：即梦 1k / 2k / 4k */
+  resolution?: string;
   n?: number;
   saveToCharacterId?: string;
   newCharacterName?: string;
@@ -325,6 +365,46 @@ export interface VideoGenPayload {
 
 export const runVideoGen = (payload: VideoGenPayload) =>
   api.post('/pipeline/video', payload).then(unwrap) as Promise<{ taskId: string }>;
+
+/**
+ * 新视频工作区上传接口（占位，未完成）。
+ * 上传图片 + 音频，返回动作提示词；不可达时前端降级走旧流程（获取灵感）。
+ */
+export interface WorkspacePayload {
+  text?: string;
+  characterImageId?: string;
+  characterId?: string;
+  imageUploadId?: string;
+  imageUrl?: string;
+  songId?: string;
+  audioUploadId?: string;
+  audioUrl?: string;
+  durationSeconds?: number;
+  audioStartSeconds?: number;
+  audioEndSeconds?: number;
+  maxResolution?: number;
+  fps?: number;
+}
+
+export interface WorkspaceRetryPayload {
+  durationSeconds?: number;
+  audioStartSeconds?: number;
+  audioEndSeconds?: number;
+  maxResolution?: number;
+  fps?: number;
+}
+
+/** 视频工作区：创建统一任务（提示词扩写 -> 视频生成），失败也会落库 */
+export const createWorkspaceTask = (payload: WorkspacePayload) =>
+  api.post('/pipeline/workspace', payload).then(unwrap) as Promise<{ taskId: string; status: string }>;
+
+/** 断点续跑：重试失败的工作区任务 */
+export const retryWorkspaceTask = (taskId: string, payload: WorkspaceRetryPayload = {}) =>
+  api.post(`/pipeline/workspace/${taskId}/retry`, payload).then(unwrap) as Promise<{ taskId: string; status: string }>;
+
+/** Hedra 提示词扩写接口实测（纯文本） */
+export const testHedra = (text?: string) =>
+  api.post('/pipeline/hedra/test', { text }).then(unwrap) as Promise<{ prompt: string; model: string }>;
 
 export const getNodeMapStatus = () =>
   api.get('/pipeline/video/node-map').then(unwrap) as Promise<{
@@ -399,6 +479,20 @@ export const listMedia = (params: {
     .get('/media', { params: { page: 1, pageSize: 20, ...params } })
     .then(unwrap) as Promise<{ data: MediaItem[]; total: number; page: number; pageSize: number }>;
 
+/* ---------------- 任务列表（视频工作区历史） ---------------- */
+
+export const listTasks = (params: {
+  type?: string;
+  q?: string;
+  page?: number;
+  pageSize?: number;
+}) =>
+  api
+    .get('/tasks', { params: { page: 1, pageSize: 50, ...params } })
+    .then(unwrap) as Promise<{ data: TaskDetail[]; total: number }>;
+
+export const deleteTask = (id: string) => api.delete(`/tasks/${id}`).then(unwrap);
+
 export const deleteMedia = (id: string) =>
   api.delete(`/media/${id}`).then(unwrap);
 
@@ -433,6 +527,9 @@ export const getSettings = () =>
     runninghubKeyConfigured: boolean;
     runninghubKeyMask: string | null;
     runninghubKeyAt: string | null;
+    hedraCookieConfigured: boolean;
+    hedraCookieMask: string | null;
+    hedraCookieAt: string | null;
   }>;
 
 export const saveRunninghubKey = (apiKey: string) =>
@@ -445,6 +542,23 @@ export const testRunninghubKey = () =>
   api.post('/settings/runninghub-key/test').then(unwrap) as Promise<{
     ok: boolean;
     remainCoins?: number | null;
+    message?: string;
+  }>;
+
+/* ---------------- 个人设置（Hedra Cookie） ---------------- */
+
+/** 保存个人 Hedra cookie（数组/对象/header 均可，加密存储） */
+export const saveHedraCookie = (cookie: string) =>
+  api.put('/settings/hedra-cookie', { cookie }).then(unwrap);
+
+export const clearHedraCookie = () =>
+  api.delete('/settings/hedra-cookie').then(unwrap);
+
+/** 测试个人 Hedra cookie 是否有效（验登录态） */
+export const testHedraCookie = () =>
+  api.post('/settings/hedra-cookie/test').then(unwrap) as Promise<{
+    ok: boolean;
+    email?: string;
     message?: string;
   }>;
 

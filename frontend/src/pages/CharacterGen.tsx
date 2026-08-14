@@ -8,6 +8,7 @@ import {
   Image,
   Input,
   InputNumber,
+  Radio,
   Row,
   Select,
   Space,
@@ -95,6 +96,7 @@ export default function CharacterGen() {
   }, [tagFilter]);
 
   const selectedPromptId = Form.useWatch('promptId', form);
+  const source = Form.useWatch('source', form) || 'ai';
   const selectedPrompt = useMemo(
     () => prompts.find((p) => p.id === selectedPromptId),
     [prompts, selectedPromptId],
@@ -121,6 +123,8 @@ export default function CharacterGen() {
       await startCharacter({
         channelId: values.channelId,
         model: values.model,
+        source: values.source || 'ai',
+        jimengModel: values.source === 'jimeng' ? values.jimengModel : undefined,
         promptId: values.promptId,
         promptText: values.promptText,
         imageUploadId: ref.imageUploadId,
@@ -128,6 +132,8 @@ export default function CharacterGen() {
         referenceCharacterImageId: ref.characterImageId,
         songId: values.songId,
         size: values.size,
+        ratio: values.source === 'jimeng' ? values.ratio : undefined,
+        resolution: values.source === 'jimeng' ? values.resolution : undefined,
         n: values.n,
         saveToCharacterId: values.saveToCharacterId,
         newCharacterName: values.newCharacterName,
@@ -189,28 +195,65 @@ export default function CharacterGen() {
           form={form}
           layout="vertical"
           onFinish={onSubmit}
-          initialValues={{ size: '1024x1536', n: 1, ...draft.form }}
+          initialValues={{ size: '1024x1536', n: 1, ratio: '1:1', resolution: '2k', ...draft.form }}
           onValuesChange={(_c, all) => patchDraft('character', { form: all })}
         >
-          <Row gutter={16}>
-            <Col xs={24} md={12}>
-              <Form.Item name="channelId" label="AI 渠道">
-                <Select
-                  allowClear
-                  placeholder="留空则用第一个可用渠道"
-                  options={channels.map((c) => ({
-                    value: c.id,
-                    label: `${c.name}${c.model ? ' · ' + c.model : ''}`,
-                  }))}
+          <Form.Item name="source" label="生成来源" initialValue="ai">
+            <Radio.Group
+              optionType="button"
+              buttonStyle="solid"
+              options={[
+                { label: 'AI 渠道', value: 'ai' },
+                { label: '即梦生成', value: 'jimeng' },
+              ]}
+            />
+          </Form.Item>
+
+          {source === 'jimeng' ? (
+            <Row gutter={16}>
+              <Col xs={24} md={12}>
+                <Form.Item name="jimengModel" label="即梦模型" initialValue="jimeng-5.0">
+                  <Select
+                    options={[
+                      { value: 'jimeng-5.0', label: '即梦 5.0' },
+                      { value: 'jimeng-4.6', label: '即梦 4.6' },
+                      { value: 'jimeng-4.5', label: '即梦 4.5' },
+                      { value: 'jimeng-4.1', label: '即梦 4.1' },
+                      { value: 'jimeng-4.0', label: '即梦 4.0' },
+                    ]}
+                  />
+                </Form.Item>
+              </Col>
+              <Col xs={24} md={12}>
+                <Alert
+                  type="info"
+                  showIcon
+                  style={{ marginTop: 6 }}
+                  message="即梦免费额度有限，单任务约消耗 6 积分；账号耗尽会提示「积分不足」"
                 />
-              </Form.Item>
-            </Col>
-            <Col xs={24} md={12}>
-              <Form.Item name="model" label="模型（可覆盖渠道默认）">
-                <Input placeholder="如 gpt-image-1 / gemini-2.5-flash-image" allowClear />
-              </Form.Item>
-            </Col>
-          </Row>
+              </Col>
+            </Row>
+          ) : (
+            <Row gutter={16}>
+              <Col xs={24} md={12}>
+                <Form.Item name="channelId" label="AI 渠道">
+                  <Select
+                    allowClear
+                    placeholder="留空则用第一个可用渠道"
+                    options={channels.map((c) => ({
+                      value: c.id,
+                      label: `${c.name}${c.model ? ' · ' + c.model : ''}`,
+                    }))}
+                  />
+                </Form.Item>
+              </Col>
+              <Col xs={24} md={12}>
+                <Form.Item name="model" label="模型（可覆盖渠道默认）">
+                  <Input placeholder="如 gpt-image-1 / gemini-2.5-flash-image" allowClear />
+                </Form.Item>
+              </Col>
+            </Row>
+          )}
 
           <Card size="small" type="inner" title="提示词（必填）" style={{ marginBottom: 16 }}>
             <Row gutter={16}>
@@ -290,11 +333,41 @@ export default function CharacterGen() {
           </Row>
 
           <Row gutter={16}>
-            <Col xs={12} md={6}>
-              <Form.Item name="size" label="尺寸">
-                <Select options={sizeOptions} />
-              </Form.Item>
-            </Col>
+            {source === 'jimeng' ? (
+              <>
+                <Col xs={12} md={6}>
+                  <Form.Item name="ratio" label="比例">
+                    <Select
+                      options={[
+                        { value: '1:1', label: '1:1 方形' },
+                        { value: '16:9', label: '16:9 横版' },
+                        { value: '9:16', label: '9:16 竖版' },
+                        { value: '3:4', label: '3:4 竖版' },
+                        { value: '4:3', label: '4:3 横版' },
+                        { value: '21:9', label: '21:9 超宽' },
+                      ]}
+                    />
+                  </Form.Item>
+                </Col>
+                <Col xs={12} md={4}>
+                  <Form.Item name="resolution" label="画质">
+                    <Select
+                      options={[
+                        { value: '1k', label: '1k 标清' },
+                        { value: '2k', label: '2k 高清' },
+                        { value: '4k', label: '4k 超清' },
+                      ]}
+                    />
+                  </Form.Item>
+                </Col>
+              </>
+            ) : (
+              <Col xs={12} md={6}>
+                <Form.Item name="size" label="尺寸">
+                  <Select options={sizeOptions} />
+                </Form.Item>
+              </Col>
+            )}
             <Col xs={12} md={4}>
               <Form.Item name="n" label="数量">
                 <InputNumber min={1} max={4} style={{ width: '100%' }} />

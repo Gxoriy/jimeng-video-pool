@@ -111,10 +111,10 @@ export default function JimengGen() {
 
   /* ========== 任务管理 ========== */
 
-  function addTask(partial: Omit<JimengTask, 'id' | 'createdAt'>) {
+  function addTask(partial: Omit<JimengTask, 'id' | 'createdAt'>, id?: string) {
     const task: JimengTask = {
       ...partial,
-      id: `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      id: id || `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       createdAt: new Date(),
     };
     setTasks((prev) => [task, ...prev]);
@@ -204,7 +204,7 @@ export default function JimengGen() {
         type: 'video',
         status: 'pending',
         prompt: params.prompt,
-      });
+      }, taskId);
 
       message.info('视频生成任务已提交，请等待...');
       setProgress(20);
@@ -256,7 +256,7 @@ export default function JimengGen() {
         type: 'image',
         status: 'pending',
         prompt: params.prompt,
-      });
+      }, taskId);
 
       message.info('图片生成任务已提交，请等待...');
       setProgress(20);

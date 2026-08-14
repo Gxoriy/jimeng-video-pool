@@ -10,6 +10,11 @@ class SetRunninghubKeyDto {
   apiKey: string;
 }
 
+class SetHedraCookieDto {
+  @IsString()
+  cookie: string;
+}
+
 @Controller('settings')
 @UseGuards(JwtAuthGuard)
 export class SettingsController {
@@ -39,6 +44,24 @@ export class SettingsController {
   @Post('runninghub-key/test')
   async test(@CurrentUser() user: AuthUser) {
     const data = await this.settings.testRunninghubKey(user);
+    return { code: 0, message: 'ok', data };
+  }
+
+  @Put('hedra-cookie')
+  async setHedraCookie(@CurrentUser() user: AuthUser, @Body() dto: SetHedraCookieDto) {
+    const data = await this.settings.setHedraCookie(user, dto.cookie);
+    return { code: 0, message: 'ok', data };
+  }
+
+  @Delete('hedra-cookie')
+  async clearHedraCookie(@CurrentUser() user: AuthUser) {
+    const data = await this.settings.clearHedraCookie(user);
+    return { code: 0, message: 'ok', data };
+  }
+
+  @Post('hedra-cookie/test')
+  async testHedraCookie(@CurrentUser() user: AuthUser) {
+    const data = await this.settings.testHedraCookie(user);
     return { code: 0, message: 'ok', data };
   }
 }

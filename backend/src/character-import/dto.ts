@@ -11,4 +11,7 @@ export class ImportCharactersFromUploadDto {
 
   /** 同名(名称)已存在时覆盖，默认跳过 */
   @IsOptional() @IsBoolean() overwrite?: boolean;
+
+  /** 是否启用 AI 视觉识别分类（默认 true）。false 时跳过 AI，直接以 active 入库。 */
+  @IsOptional() @IsBoolean() enableAi?: boolean;
 }

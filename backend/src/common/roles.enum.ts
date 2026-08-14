@@ -12,6 +12,8 @@ export enum NetworkScope {
 export enum Executor {
   AI_CHANNEL = 'ai_channel',
   RUNNINGHUB = 'runninghub',
+  JIMENG = 'jimeng',
+  WORKSPACE = 'workspace',
 }
 
 // Prisma 枚举（运行时值 + 类型），从 @prisma/client 再导出以便统一引用

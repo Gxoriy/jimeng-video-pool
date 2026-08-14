@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { EgressHttpService } from '../egress/egress-http.service';
 import { AuthUser } from '../auth/auth.service';
 import { encrypt, decrypt } from '../common/utils/encryption.util';
+import { HedraClient } from '../pipeline/clients/hedra.client';
 
 /**
  * 用户个人设置 —— 目前核心是 RunningHub API Key。
@@ -19,18 +20,27 @@ export class SettingsService {
     private prisma: PrismaService,
     private config: ConfigService,
     private http: EgressHttpService,
+    private hedra: HedraClient,
   ) {}
 
-  /** 读取当前用户设置（Key 只回掩码，不回明文） */
+  /** 读取当前用户设置（Key/cookie 只回掩码，不回明文） */
   async get(user: AuthUser) {
     const u = await this.prisma.user.findUnique({
       where: { id: user.id },
-      select: { runninghubKeyEnc: true, runninghubKeyAt: true },
+      select: {
+        runninghubKeyEnc: true,
+        runninghubKeyAt: true,
+        hedraCookieEnc: true,
+        hedraCookieAt: true,
+      },
     });
     return {
       runninghubKeyConfigured: !!u?.runninghubKeyEnc,
       runninghubKeyMask: u?.runninghubKeyEnc ? this.mask(u.runninghubKeyEnc) : null,
       runninghubKeyAt: u?.runninghubKeyAt || null,
+      hedraCookieConfigured: !!u?.hedraCookieEnc,
+      hedraCookieMask: u?.hedraCookieEnc ? this.mask(u.hedraCookieEnc) : null,
+      hedraCookieAt: u?.hedraCookieAt || null,
     };
   }
 
@@ -102,6 +112,53 @@ export class SettingsService {
       return raw.length <= 8 ? '****' : `${raw.slice(0, 4)}****${raw.slice(-4)}`;
     } catch {
       return '****';
+    }
+  }
+
+  /** 保存个人 Hedra cookie（加密存储，数组/对象/header 均可） */
+  async setHedraCookie(user: AuthUser, cookie: string) {
+    const raw = (cookie || '').trim();
+    if (!raw) throw new BadRequestException('Hedra cookie 不能为空');
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { hedraCookieEnc: encrypt(raw), hedraCookieAt: new Date() },
+    });
+    return this.get(user);
+  }
+
+  /** 清空个人 Hedra cookie */
+  async clearHedraCookie(user: AuthUser) {
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { hedraCookieEnc: null, hedraCookieAt: null },
+    });
+    return this.get(user);
+  }
+
+  /** 测试个人 Hedra cookie 是否可登录（验 profile 接口） */
+  async testHedraCookie(user: AuthUser) {
+    const u = await this.prisma.user.findUnique({
+      where: { id: user.id },
+      select: { hedraCookieEnc: true },
+    });
+    if (!u?.hedraCookieEnc) {
+      return { ok: false, message: '尚未配置个人 Hedra cookie，请先到「个人设置」填写' };
+    }
+    let raw: string;
+    try {
+      raw = decrypt(u.hedraCookieEnc);
+    } catch {
+      return { ok: false, message: 'Hedra cookie 解密失败，请重新填写' };
+    }
+    try {
+      const p = await this.hedra.profile(raw);
+      return {
+        ok: true,
+        email: p.email,
+        message: p.email ? `登录正常：${p.email}` : '登录正常',
+      };
+    } catch (e: any) {
+      return { ok: false, message: e?.message || 'Hedra 登录校验失败' };
     }
   }
 }

@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { PipelineModule } from '../pipeline/pipeline.module';
 import { FileModule } from '../file/file.module';
@@ -13,7 +13,7 @@ import { ExternalPoolClient } from './external-pool.client';
 
 @Module({
   // PipelineModule 提供 TaskRecorderService（任务/日志）与 AssetResolverService（素材解析）
-  imports: [PrismaModule, PipelineModule, FileModule],
+  imports: [PrismaModule, forwardRef(() => PipelineModule), FileModule],
   controllers: [JimengController, JimengAdminController],
   providers: [JimengCoreService, JimengImageService, JimengVideoService, JimengAccountService, JimengCheckinService, ExternalPoolClient],
   exports: [JimengCoreService, JimengAccountService, JimengCheckinService, ExternalPoolClient],

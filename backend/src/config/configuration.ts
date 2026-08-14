@@ -22,6 +22,9 @@ export default registerAs('app', () => ({
     ...parseCsv(process.env.ALLOWED_EGRESS_HOSTS),
     'jimeng.jianying.com',
     '*.bytedanceapi.com',
+    '*.byteimg.com',
+    'www.hedra.com',
+    '*.hedra.com',
   ],
   blockedEgressHosts: parseCsv(process.env.BLOCKED_EGRESS_HOSTS),
 
@@ -46,6 +49,21 @@ export default registerAs('app', () => ({
   uploadPath: process.env.UPLOAD_PATH || './data/uploads',
   /** 生成 upload url 时使用的对外基址，留空则用相对路径 /api/files */
   publicBaseUrl: process.env.PUBLIC_BASE_URL || '',
+
+  /**
+   * 内部版改造：生成结果是否仍本地下载原文件。
+   * 默认 false —— 素材库不再本地存原文件，仅保留 URL 与工作信息（写入 assets 表）。
+   * 设 true 可回退到旧行为（仍下载到 STORAGE_PATH）。
+   */
+  storeMediaLocally: (process.env.STORE_MEDIA_LOCALLY || 'false') !== 'false',
+
+  /**
+   * 后端同步接口 /api/assets/sync 的调用凭证。
+   * 仅允许携带此令牌（请求头 X-Internal-Token）或来源 IP 在 internalSyncAllowedIps 内调用。
+   * 留空则仅允许来自回环地址(127.0.0.1 / ::1)的调用。
+   */
+  internalSyncToken: process.env.INTERNAL_SYNC_TOKEN || '',
+  internalSyncAllowedIps: parseCsv(process.env.INTERNAL_SYNC_ALLOWED_IPS).concat('127.0.0.1', '::1'),
 
   runninghubApiBase:
     process.env.RUNNINGHUB_API_BASE || 'https://www.runninghub.cn',
@@ -84,6 +102,24 @@ export default registerAs('app', () => ({
   runninghubNodeMap: { ...DEFAULT_NODE_MAP, ...parseNodeMap(process.env.RUNNINGHUB_NODE_MAP) },
 
   redisUrl: process.env.REDIS_URL || undefined,
+
+  /**
+   * Hedra 提示词扩写 API 配置。
+   * 提供 workos-cookie 的 JSON 文件路径，用于调用 www.hedra.com/api/messages。
+   * 文件格式：{ "workos-cookie": "Fe26.2*1*...", "cf_clearance": "..." }
+   * cookie 会在每次响应后自动更新回写该文件。
+   */
+  hedraCookiePath: process.env.HEDRA_COOKIE_PATH || '',
+  hedraBaseUrl: process.env.HEDRA_BASE_URL || 'https://www.hedra.com',
+  hedraTimeoutMs: parseInt(process.env.HEDRA_TIMEOUT_MS || '120000', 10),
+
+  /**
+   * 工作区提示词扩写的 AI 渠道降级开关。
+   * Hedra 扩写失败时，默认降级到 AI 渠道（获取灵感）再生成一次动作提示词。
+   * 设为 false 可关闭该降级：Hedra 失败即终止，避免 AI 渠道不通时任务被意外打断或空跑。
+   */
+  inspirationFallbackEnabled:
+    (process.env.INSPIRATION_FALLBACK_ENABLED || 'true') !== 'false',
 }));
 
 export interface NodeMapEntry {

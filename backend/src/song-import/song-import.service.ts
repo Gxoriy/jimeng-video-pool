@@ -22,6 +22,8 @@ export interface SongImportItemResult {
   language?: string;
   description?: string;
   lyrics?: string;
+  /** 本条是否真正走了 AI 识别（false=降级为原始信息 + 待分类） */
+  aiUsed?: boolean;
   error?: string;
 }
 
@@ -86,12 +88,23 @@ export class SongImportService {
       try {
         const meta = await this.music.fetchSong(it.song, it.artist);
         const localPath = await this.music.download(meta.mp3Url);
-        const info = await this.classify(user, {
-          title: meta.title,
-          artist: meta.artist,
-          duration: meta.durationSec,
-          lyrics: meta.lyrics,
-        });
+        const enableAi = dto.enableAi !== false;
+        const info = enableAi
+          ? await this.classify(user, {
+              title: meta.title,
+              artist: meta.artist,
+              duration: meta.durationSec,
+              lyrics: meta.lyrics,
+            })
+          : {
+              title: meta.title,
+              artist: meta.artist || '',
+              category: undefined,
+              tags: ['待分类'],
+              language: undefined,
+              description: undefined,
+              aiUsed: false,
+            };
         const song = await this.upsertSong(
           {
             title: info.title,
@@ -105,7 +118,8 @@ export class SongImportService {
             url: meta.mp3Url,
             localPath,
             coverUrl: meta.coverUrl,
-            status: 'pending_review',
+            // 开启 AI：进入待审核；关闭 AI：直接入库(active)
+            status: enableAi ? 'pending_review' : 'active',
           },
           dto.overwrite,
         );
@@ -125,6 +139,7 @@ export class SongImportService {
           language: info.language,
           description: info.description,
           lyrics: meta.lyrics,
+          aiUsed: info.aiUsed,
         });
       } catch (e: any) {
         summary.failed++;
@@ -160,12 +175,23 @@ export class SongImportService {
         }
         const duration = await probeDurationSec(up.localPath, this.config);
         const guessed = this.guessFromFilename(up.filename);
-        const info = await this.classify(user, {
-          title: guessed.title,
-          artist: guessed.artist,
-          duration,
-          lyrics: undefined,
-        });
+        const enableAi = dto.enableAi !== false;
+        const info = enableAi
+          ? await this.classify(user, {
+              title: guessed.title,
+              artist: guessed.artist,
+              duration,
+              lyrics: undefined,
+            })
+          : {
+              title: guessed.title,
+              artist: guessed.artist,
+              category: undefined,
+              tags: ['待分类'],
+              language: undefined,
+              description: undefined,
+              aiUsed: false,
+            };
         const song = await this.upsertSong(
           {
             title: info.title,
@@ -179,7 +205,8 @@ export class SongImportService {
             url: up.url, // 用户上传文件的可访问 URL（同用户/管理员可播放）
             localPath: up.localPath,
             coverUrl: undefined,
-            status: 'pending_review',
+            // 开启 AI：进入待审核；关闭 AI：直接入库(active)
+            status: enableAi ? 'pending_review' : 'active',
           },
           dto.overwrite,
         );
@@ -197,6 +224,7 @@ export class SongImportService {
           tags: info.tags,
           language: info.language,
           description: info.description,
+          aiUsed: info.aiUsed,
         });
       } catch (e: any) {
         summary.failed++;
@@ -282,6 +310,7 @@ export class SongImportService {
     tags: string[];
     language?: string;
     description?: string;
+    aiUsed: boolean;
   }> {
     const fallback = () => ({
       title: meta.title,
@@ -290,6 +319,7 @@ export class SongImportService {
       tags: ['待分类'],
       language: undefined,
       description: undefined,
+      aiUsed: false,
     });
 
     let channel;
@@ -335,6 +365,7 @@ export class SongImportService {
           : ['待分类'],
         language: (parsed.language as string) || undefined,
         description: (parsed.description as string) || undefined,
+        aiUsed: true,
       };
     } catch (e: any) {
       this.logger.warn(`AI 识别失败，使用原始信息：${e?.message || e}`);

@@ -22,7 +22,7 @@ export class JimengImageService {
   ) {}
 
   async generate(params: GenerateImageDto): Promise<{ id: string; taskId: string }> {
-    const model = params.model || 'jimeng-2.1';
+    const model = params.model || 'jimeng-5.0';
     const ratio = params.ratio || '1:1';
 
     const { processedPrompt } = this.parseMentions(params.prompt, params.references);
@@ -32,12 +32,12 @@ export class JimengImageService {
 
     let refImageUrl = '';
     if (params.imageUploadId) {
-      refImageUrl = (await this.fileService.getFile(params.imageUploadId).then(f => f?.url).catch(() => '')) || '';
+      refImageUrl = (await this.fileService.getFileDataUrl(params.imageUploadId).catch(() => '')) || '';
     }
     if (!refImageUrl && params.references?.length) {
       const imgRef = params.references.find(r => r.type === ReferenceType.IMAGE);
       if (imgRef?.uploadId) {
-        refImageUrl = (await this.fileService.getFile(imgRef.uploadId).then(f => f?.url).catch(() => '')) || '';
+        refImageUrl = (await this.fileService.getFileDataUrl(imgRef.uploadId).catch(() => '')) || '';
       } else if (imgRef?.url) {
         refImageUrl = imgRef.url;
       }
@@ -56,7 +56,7 @@ export class JimengImageService {
       },
     });
 
-    void this.executeGenerate(localId, account.sessionid, {
+    void this.executeGenerate(localId, account.id, account.sessionid, {
       prompt: processedPrompt, model, ratio, refImageUrl,
     }).catch((err) => {
       this.logger.error(`[image] 任务 ${localId} 执行失败: ${err?.message}`);
@@ -143,37 +143,41 @@ export class JimengImageService {
   }
 
   private async executeGenerate(
-    localId: string, encryptedSessionid: string,
+    localId: string, accountId: string, encryptedSessionid: string,
     opts: { prompt: string; model: string; ratio: string; refImageUrl: string },
   ) {
-    let sessionid: string;
-    try { sessionid = decrypt(encryptedSessionid); } catch { sessionid = ''; }
-    if (!sessionid) {
-      await this.prisma.jimengTask.update({ where: { taskId: localId }, data: { status: 'failed', resultJson: { error: '账号sessionid无法解密' } } }).catch(() => {});
-      return;
+    try {
+      let sessionid: string;
+      try { sessionid = decrypt(encryptedSessionid); } catch { sessionid = ''; }
+      if (!sessionid) {
+        await this.prisma.jimengTask.update({ where: { taskId: localId }, data: { status: 'failed', resultJson: { error: '账号sessionid无法解密' } } }).catch(() => {});
+        return;
+      }
+
+      await this.prisma.jimengTask.update({ where: { taskId: localId }, data: { status: 'processing', progress: '10' } });
+
+      const result = await this.core.generateImage(sessionid, {
+        prompt: opts.prompt, ratio: opts.ratio, model: opts.model, imageUrl: opts.refImageUrl || undefined,
+      }, NetworkScope.RESTRICTED);
+
+      await this.prisma.jimengTask.update({
+        where: { taskId: localId },
+        data: { progress: '30', resultJson: { externalTaskId: result.task_id } },
+      });
+
+      let attempts = 0;
+      while (attempts < 60) {
+        await new Promise(r => setTimeout(r, 5000));
+        attempts++;
+        const updated = await this.pollAndUpdate(localId);
+        if (updated.status === 'completed' || updated.status === 'failed') return;
+      }
+      await this.prisma.jimengTask.update({
+        where: { taskId: localId },
+        data: { status: 'failed', resultJson: { error: '生成超时（超过5分钟）' } },
+      }).catch(() => {});
+    } finally {
+      this.accountService.release(accountId);
     }
-
-    await this.prisma.jimengTask.update({ where: { taskId: localId }, data: { status: 'processing', progress: '10' } });
-
-    const result = await this.core.generateImage(sessionid, {
-      prompt: opts.prompt, ratio: opts.ratio, imageUrl: opts.refImageUrl || undefined,
-    }, NetworkScope.RESTRICTED);
-
-    await this.prisma.jimengTask.update({
-      where: { taskId: localId },
-      data: { progress: '30', resultJson: { externalTaskId: result.task_id } },
-    });
-
-    let attempts = 0;
-    while (attempts < 60) {
-      await new Promise(r => setTimeout(r, 5000));
-      attempts++;
-      const updated = await this.pollAndUpdate(localId);
-      if (updated.status === 'completed' || updated.status === 'failed') return;
-    }
-    await this.prisma.jimengTask.update({
-      where: { taskId: localId },
-      data: { status: 'failed', resultJson: { error: '生成超时（超过5分钟）' } },
-    }).catch(() => {});
   }
 }
