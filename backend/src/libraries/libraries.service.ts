@@ -104,18 +104,19 @@ export class LibrariesService {
     });
   }
 
-  /** 向已有形象追加多张不同风格/背景的图（内部版多图需求） */
+  /** 向已有形象追加多张不同风格/背景的图（内部版多图需求）
+   *  幂等保护：同一请求内相同 URL 只入库一次；本形象下已存在的相同 URL 跳过，避免重复导入两份相同照片 */
   async appendCharacterImages(
     id: string,
     dto: AppendCharacterImagesDto,
     user: AuthUser,
-  ): Promise<{ added: number }> {
+  ): Promise<{ added: number; skipped: number }> {
     const c = await this.prisma.character.findUnique({ where: { id } });
     if (!c) throw new NotFoundException('形象不存在');
 
-    const urls: string[] = [];
+    const rawUrls: string[] = [];
     for (const u of dto.urls || []) {
-      if (u?.trim()) urls.push(u.trim());
+      if (u?.trim()) rawUrls.push(u.trim());
     }
     if (dto.uploadIds?.length) {
       for (const uid of dto.uploadIds) {
@@ -123,11 +124,26 @@ export class LibrariesService {
         if (!up) continue;
         // 上传文件按 user_id 隔离，非管理员只能用自己上传的
         if (user.role !== Role.SUPER_ADMIN && up.userId !== user.id) continue;
-        if (up.url) urls.push(up.url);
+        if (up.url) rawUrls.push(up.url);
       }
     }
 
-    for (const url of urls) {
+    // 1) 请求内去重：相同 URL 只保留一份
+    const seen = new Set<string>();
+    const uniqueUrls = rawUrls.filter((u) => {
+      if (seen.has(u)) return false;
+      seen.add(u);
+      return true;
+    });
+    // 2) 跳过本形象下已存在的相同 URL（防止双击确认/重复导入产生两份相同照片）
+    const existing = await this.prisma.characterImage.findMany({
+      where: { characterId: id, status: 'active', url: { in: uniqueUrls } },
+      select: { url: true },
+    });
+    const existingUrls = new Set(existing.map((e) => e.url));
+    const toAdd = uniqueUrls.filter((u) => !existingUrls.has(u));
+
+    for (const url of toAdd) {
       await this.prisma.characterImage.create({
         data: {
           characterId: id,
@@ -140,10 +156,10 @@ export class LibrariesService {
       });
     }
     // 若形象还没有封面，用最新一张补上
-    if (!c.coverUrl && urls.length) {
-      await this.prisma.character.update({ where: { id }, data: { coverUrl: urls[urls.length - 1] } });
+    if (!c.coverUrl && toAdd.length) {
+      await this.prisma.character.update({ where: { id }, data: { coverUrl: toAdd[toAdd.length - 1] } });
     }
-    return { added: urls.length };
+    return { added: toAdd.length, skipped: rawUrls.length - toAdd.length };
   }
 
   /** 删除形象下某张图（同步维护封面） */

@@ -74,6 +74,7 @@ export default function Characters() {
   const [regenStyle, setRegenStyle] = useState('');
   const [regenSource, setRegenSource] = useState<'ai' | 'jimeng'>('ai');
   const [regenJimengModel, setRegenJimengModel] = useState('jimeng-5.0');
+  const [confirming, setConfirming] = useState(false);
   const [regenRatio, setRegenRatio] = useState('1:1');
   const [regenResolution, setRegenResolution] = useState('2k');
   const [regenSize, setRegenSize] = useState('1024x1536');
@@ -232,7 +233,9 @@ export default function Characters() {
         setImportProgress(Math.round(((i + 1) / importFiles.length) * 100));
       }
       const res = await appendCharacterImages(selectedId, { uploadIds: ids });
-      message.success(`已导入 ${res.added} 张`);
+      message.success(
+        `已导入 ${res.added} 张${res.skipped ? `，跳过重复 ${res.skipped} 张` : ''}`,
+      );
       setImportFiles([]);
       selectCharacter(selectedId);
     } catch (e: any) {
@@ -301,13 +304,20 @@ export default function Characters() {
   };
 
   const confirmRegen = async () => {
-    if (!selectedId) return;
-    await appendCharacterImages(selectedId, { urls: regenResult, style: regenStyle || '新风格', prompt: regenPrompt });
-    message.success('已入库');
-    setRegenResult([]);
-    setRegenPrompt('');
-    setRegenStyle('');
-    selectCharacter(selectedId);
+    if (!selectedId || confirming) return;
+    setConfirming(true);
+    try {
+      await appendCharacterImages(selectedId, { urls: regenResult, style: regenStyle || '新风格', prompt: regenPrompt });
+      message.success('已入库');
+      setRegenResult([]);
+      setRegenPrompt('');
+      setRegenStyle('');
+      selectCharacter(selectedId);
+    } catch (e: any) {
+      message.error(e?.response?.data?.message || e?.message || '入库失败');
+    } finally {
+      setConfirming(false);
+    }
   };
 
   const onDeleteImage = async (imageId: string) => {
@@ -484,7 +494,15 @@ export default function Characters() {
                 <Upload.Dragger
                   multiple
                   accept="image/png,image/jpeg,image/jpg,image/webp"
-                  beforeUpload={(f) => { setImportFiles((p) => [...p, f as File]); return false; }}
+                  beforeUpload={(f) => {
+                    setImportFiles((p) => {
+                      const dup = p.some(
+                        (x) => x.name === f.name && x.size === f.size && x.lastModified === f.lastModified,
+                      );
+                      return dup ? p : [...p, f as File];
+                    });
+                    return false;
+                  }}
                   fileList={[]}
                   onRemove={() => undefined}
                 >
@@ -592,7 +610,7 @@ export default function Characters() {
                       ))}
                     </div>
                     <Space style={{ marginTop: 8 }}>
-                      <Button type="primary" onClick={confirmRegen}>确认入库</Button>
+                      <Button type="primary" loading={confirming} onClick={confirmRegen}>确认入库</Button>
                       <Button onClick={() => setRegenResult([])}>放弃</Button>
                     </Space>
                   </Card>
