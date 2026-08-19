@@ -26,6 +26,7 @@ import {
 import type { TableRowSelection } from 'antd/es/table/interface';
 import {
   AudioOutlined,
+  BulbOutlined,
   CloseOutlined,
   CopyOutlined,
   DeleteOutlined,
@@ -37,6 +38,7 @@ import {
   PlusOutlined,
   RedoOutlined,
   ReloadOutlined,
+  SaveOutlined,
   SyncOutlined,
   UploadOutlined,
 } from '@ant-design/icons';
@@ -51,12 +53,16 @@ import {
   deleteTask,
   pollTask,
   uploadFile,
+  expandPrompt,
+  listPromptsPage,
+  createPrompt,
   type Character,
   type Song,
   type TaskDetail,
   type UploadItem,
   type WorkspacePayload,
   type WorkspaceRetryPayload,
+  type Prompt,
 } from '../api/pipeline';
 
 const PARAM_DEFAULTS = { durationSeconds: 0, audioStartSeconds: 0, maxResolution: 1024, fps: 25 };
@@ -119,7 +125,7 @@ export default function VideoWorkspace() {
   const [charQ, setCharQ] = useState('');
   const [songQ, setSongQ] = useState('');
   const [selCharId, setSelCharId] = useState<string | null>(null);
-  const [selCharImages, setSelCharImages] = useState<{ id: string; url: string; style?: string }[]>([]);
+  const [selCharImages, setSelCharImages] = useState<{ id: string; url: string; style?: string; localPath?: string | null }[]>([]);
   const [selImageId, setSelImageId] = useState<string | null>(null);
   const [selSongId, setSelSongId] = useState<string | null>(null);
   const [text, setText] = useState('');
@@ -128,6 +134,11 @@ export default function VideoWorkspace() {
   const [audioUpload, setAudioUpload] = useState<UploadItem | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [uploadingAudio, setUploadingAudio] = useState(false);
+  const [expanding, setExpanding] = useState(false);
+  const [promptOpen, setPromptOpen] = useState(false);
+  const [promptList, setPromptList] = useState<Prompt[]>([]);
+  const [promptQ, setPromptQ] = useState('');
+  const [promptSaving, setPromptSaving] = useState(false);
   const draftRef = useRef<Draft>({});
 
   /* ---------- 编辑/重试 ---------- */
@@ -220,7 +231,7 @@ export default function VideoWorkspace() {
   const loadCharImages = async (charId: string) => {
     try {
       const c = await getCharacter(charId);
-      setSelCharImages((c.images || []).map((i) => ({ id: i.id, url: i.url, style: i.style || '默认' })));
+      setSelCharImages((c.images || []).map((i) => ({ id: i.id, url: i.url, style: i.style || '默认', localPath: i.localPath || null })));
     } catch { /* ignore */ }
   };
 
@@ -276,7 +287,7 @@ export default function VideoWorkspace() {
     }
   };
 
-  const canExecute = (!!selImageId || !!imageUpload) && (!!selSongId || !!audioUpload);
+  const canExecute = (!!selImageId || !!imageUpload) && (!!selSongId || !!audioUpload) && !!text.trim();
 
   /* ---------- 新建任务：统一接口，先落库再异步执行 ---------- */
   const onExecute = async () => {
@@ -314,6 +325,71 @@ export default function VideoWorkspace() {
       message.error(e?.response?.data?.message || e?.message || '创建任务失败');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  /* ---------- 提示词扩写：仅扩写文本，不生成视频 ---------- */
+  const onExpand = async () => {
+    const src = text.trim();
+    if (!src) {
+      message.warning('请先填写动作提示词，再点「提示词扩写」');
+      return;
+    }
+    setExpanding(true);
+    try {
+      const res = await expandPrompt({
+        text: src,
+        characterImageId: selImageId || undefined,
+        imageUploadId: imageUpload?.id,
+        songId: selSongId || undefined,
+        audioUploadId: audioUpload?.id,
+      });
+      setText(res.prompt);
+      saveDraft({ text: res.prompt });
+      const tag = res.source === 'inspiration' ? '（已降级到 AI 灵感）' : '';
+      message.success(`提示词已扩写${tag}，可继续编辑后再生成视频`);
+    } catch (e: any) {
+      message.error(e?.response?.data?.message || e?.message || '提示词扩写失败');
+    } finally {
+      setExpanding(false);
+    }
+  };
+
+  /* ---------- 提示词库（动作类） ---------- */
+  const loadPrompts = (kw?: string) => {
+    listPromptsPage({ type: 'action', q: kw || undefined, pageSize: 200 })
+      .then((r) => setPromptList(r.data))
+      .catch(() => undefined);
+  };
+
+  const openPromptPicker = () => {
+    setPromptQ('');
+    loadPrompts();
+    setPromptOpen(true);
+  };
+
+  const onPickPrompt = (p: Prompt) => {
+    const next = text.trim() ? `${text.trim()}\n${p.content}` : p.content;
+    setText(next);
+    saveDraft({ text: next });
+    setPromptOpen(false);
+    message.success(`已插入提示词「${p.title}」`);
+  };
+
+  const saveCurrentPromptToLibrary = async () => {
+    if (!text.trim()) return message.warning('请先填写动作提示词');
+    setPromptSaving(true);
+    try {
+      await createPrompt({
+        title: text.trim().slice(0, 20) || '自定义动作提示词',
+        content: text.trim(),
+        type: 'action',
+      });
+      message.success('已保存到提示词库');
+    } catch (e: any) {
+      message.error(e?.response?.data?.message || '保存失败');
+    } finally {
+      setPromptSaving(false);
     }
   };
 
@@ -800,6 +876,11 @@ export default function VideoWorkspace() {
                           <span style={{ fontSize: 11 }}>{img.style}</span>
                         </Checkbox>
                         <Image src={img.url} width={84} height={84} style={{ objectFit: 'cover', borderRadius: 4, marginTop: 2 }} />
+                        {!img.localPath && (
+                          <Tooltip title="该图没有本地副本（远程链接可能已过期），生成视频时引用它将报错。请到「形象库」重新上传或重新生成该形象图片。">
+                            <Tag color="error" style={{ fontSize: 10, marginTop: 2, lineHeight: '16px' }}>无本地副本</Tag>
+                          </Tooltip>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -825,8 +906,19 @@ export default function VideoWorkspace() {
           </Col>
         </Row>
         <div style={{ marginTop: 12 }}>
-          <div style={{ fontSize: 13, marginBottom: 4 }}>创意描述（可选，会传给 Hedra 做提示词扩写）</div>
+          <div style={{ fontSize: 13, marginBottom: 4 }}>动作提示词（必填，想更专业可点「提示词扩写」）</div>
           <Input.TextArea rows={2} value={text} onChange={(e) => { setText(e.target.value); saveDraft({ text: e.target.value }); }} placeholder="例如：深情演唱，面向镜头，固定镜头" />
+          <Space style={{ marginTop: 6 }} wrap>
+            <Button size="small" icon={<BulbOutlined />} loading={expanding} onClick={onExpand}>
+              提示词扩写
+            </Button>
+            <Button size="small" icon={<FolderOpenOutlined />} onClick={openPromptPicker}>
+              从提示词库选取
+            </Button>
+            <Button size="small" icon={<SaveOutlined />} loading={promptSaving} onClick={saveCurrentPromptToLibrary}>
+              保存到提示词库
+            </Button>
+          </Space>
         </div>
         <div style={{ marginTop: 16 }}>
           <Row gutter={16}>
@@ -837,6 +929,47 @@ export default function VideoWorkspace() {
         <div style={{ marginTop: 16, textAlign: 'right' }}>
           <Button type="primary" disabled={!canExecute} loading={submitting} onClick={onExecute}>开始执行</Button>
         </div>
+      </Modal>
+
+      {/* 提示词库选取（动作类） */}
+      <Modal
+        open={promptOpen}
+        title="从提示词库选取（动作类）"
+        onCancel={() => setPromptOpen(false)}
+        footer={null}
+        width={720}
+        destroyOnClose
+      >
+        <Input.Search
+          placeholder="搜索提示词"
+          allowClear
+          onSearch={(v) => { setPromptQ(v); loadPrompts(v); }}
+          style={{ marginBottom: 12 }}
+        />
+        <List
+          dataSource={promptList}
+          locale={{ emptyText: '提示词库暂无动作类提示词，可在上方文本框输入后点击「保存到提示词库」' }}
+          renderItem={(p) => (
+            <List.Item
+              onClick={() => onPickPrompt(p)}
+              style={{ cursor: 'pointer', padding: '10px 12px', borderRadius: 6 }}
+              actions={[
+                <Button key="pick" size="small" type="primary" onClick={(e) => { e.stopPropagation(); onPickPrompt(p); }}>
+                  选用
+                </Button>,
+              ]}
+            >
+              <div>
+                <Space wrap>
+                  <strong>{p.title}</strong>
+                  {p.category && <Tag color="green">{p.category}</Tag>}
+                  {(p.tags || []).map((t) => <Tag key={t}>{t}</Tag>)}
+                </Space>
+                <div style={{ fontSize: 12, color: '#888', marginTop: 4, whiteSpace: 'pre-wrap' }}>{p.content}</div>
+              </div>
+            </List.Item>
+          )}
+        />
       </Modal>
 
       {/* 编辑参数弹窗 */}

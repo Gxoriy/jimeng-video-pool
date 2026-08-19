@@ -187,13 +187,32 @@ export class RunningHubClient {
     );
   }
 
-  /** 查询账户 R 币余额（best-effort，接口未在本期文档中明确，失败时由调用方兜底） */
+  /**
+   * 查询账户 R 币余额与当前任务数。
+   *
+   * 依据 RunningHub 官方 OpenAPI（与 runninghub-cli 一致）：
+   *   POST {base}/uc/openapi/accountStatus
+   *   Authorization: Bearer <API_KEY>，body: { "apikey": "<API_KEY>" }
+   * 成功响应：{ code: 0, data: { remainCoins: "150.0", currentTaskCounts: "0", apiType: "coins" } }
+   */
   async accountStatus(apiKey: string, scope: NetworkScope) {
-    const resp = await this.http.get(
-      `${this.base}/api/openapi/v1/account/status`,
+    const resp = await this.http.post(
+      `${this.base}/uc/openapi/accountStatus`,
       scope,
+      { apikey: apiKey },
       { headers: this.auth(apiKey), timeout: 20000 },
     );
-    return resp.data?.data ?? resp.data;
+    const wrapper = resp.data ?? {};
+    const code = wrapper?.code;
+    const d = wrapper?.data ?? wrapper;
+    if (code != null && code !== 0) {
+      throw new BadRequestException(`RunningHub 账户查询失败：${wrapper?.msg || '未知错误'}`);
+    }
+    const rawCoins = d?.remainCoins ?? d?.coins;
+    return {
+      remainCoins: rawCoins == null ? null : Number(rawCoins),
+      currentTaskCounts: d?.currentTaskCounts != null ? Number(d.currentTaskCounts) : null,
+      apiType: d?.apiType ?? null,
+    };
   }
 }

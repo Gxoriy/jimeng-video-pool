@@ -294,13 +294,23 @@ export class HedraClient {
   }
 
   private async readText(resp: AxiosResponse<any>): Promise<string> {
-    if (typeof resp.data === 'string') return resp.data;
-    // stream mode
-    const chunks: Buffer[] = [];
-    for await (const chunk of resp.data) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    const data = resp.data;
+    // 1) 已是字符串（如 JSON 被 axios 解析失败回退的文本、或 HTML 错误页）
+    if (typeof data === 'string') return data;
+    // 2) 代理缓冲成了 Buffer（部分出网代理不流式转发）
+    if (Buffer.isBuffer(data)) return data.toString('utf8');
+    // 3) 流式响应（Readable / 异步可迭代）
+    if (data && typeof data === 'object' && typeof (data as any)[Symbol.asyncIterator] === 'function') {
+      const chunks: Buffer[] = [];
+      for await (const chunk of data as any) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+      return Buffer.concat(chunks).toString('utf8');
     }
-    return Buffer.concat(chunks).toString('utf8');
+    // 4) 非流式对象（如 JSON 已被 axios 解析成对象，典型场景：profile 接口）
+    //    直接序列化，避免 `for await` 在对象上抛 "resp.data is not async iterable"
+    if (data && typeof data === 'object') return JSON.stringify(data);
+    return String(data);
   }
 
   /**

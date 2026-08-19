@@ -17,6 +17,7 @@ import {
   Spin,
   Tabs,
   Tag,
+  Tooltip,
   Typography,
   Upload,
   message,
@@ -472,6 +473,13 @@ export default function Characters() {
                       </Typography.Text>
                     </span>
                   </Checkbox>
+                  {!img.localPath && (
+                    <Tooltip title="该图没有本地副本（远程链接可能已过期）。视频生成若引用它将报错，请重新上传或重新生成该形象图片以补充本地副本。">
+                      <Tag color="error" style={{ fontSize: 11, margin: '4px 0 0', display: 'inline-block' }}>
+                        本地副本缺失
+                      </Tag>
+                    </Tooltip>
+                  )}
                     <Image src={img.url} width={134} height={134} style={{ objectFit: 'cover', borderRadius: 4, marginTop: 4 }} />
                     <div style={{ marginTop: 4 }}>
                       <Popconfirm title="删除这张图？" onConfirm={() => onDeleteImage(img.id)}>

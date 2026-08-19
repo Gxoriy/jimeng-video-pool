@@ -28,6 +28,7 @@ export interface UploadItem {
 export interface CharacterImage {
   id: string;
   url: string;
+  localPath?: string | null;
   prompt?: string;
   model?: string;
   style?: string;
@@ -405,6 +406,18 @@ export const retryWorkspaceTask = (taskId: string, payload: WorkspaceRetryPayloa
 /** Hedra 提示词扩写接口实测（纯文本） */
 export const testHedra = (text?: string) =>
   api.post('/pipeline/hedra/test', { text }).then(unwrap) as Promise<{ prompt: string; model: string }>;
+
+/** 提示词扩写（仅文本，不生成视频）：供视频工作区「提示词扩写」按钮调用 */
+export const expandPrompt = (payload: {
+  text: string;
+  characterImageId?: string;
+  imageUploadId?: string;
+  songId?: string;
+  audioUploadId?: string;
+}) =>
+  api
+    .post('/pipeline/hedra/expand', payload)
+    .then(unwrap) as Promise<{ prompt: string; model: string; usedFallback?: boolean; source?: string }>;
 
 export const getNodeMapStatus = () =>
   api.get('/pipeline/video/node-map').then(unwrap) as Promise<{

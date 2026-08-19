@@ -29,10 +29,14 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(200)
-  async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
+  async login(
+    @Req() req: any,
+    @Body() dto: LoginDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     const user = await this.auth.validateUser(dto.username, dto.password);
     const tokens = await this.auth.login(user);
-    this.setCookies(res, tokens);
+    this.setCookies(req, res, tokens);
     return { code: 0, message: 'ok', data: { user } };
   }
 
@@ -49,7 +53,7 @@ export class AuthController {
       throw new UnauthorizedException('refresh token 无效或已过期');
     }
     const tokens = await this.auth.refresh(payload.sub);
-    this.setCookies(res, tokens);
+    this.setCookies(req, res, tokens);
     return { code: 0, message: 'ok', data: null };
   }
 
@@ -68,13 +72,26 @@ export class AuthController {
   }
 
   private setCookies(
+    req: any,
     res: Response,
     tokens: { accessToken: string; refreshToken: string },
   ) {
-    const isProd = process.env.NODE_ENV === 'production';
+    // secure 不能简单跟 NODE_ENV 绑定：服务器用 HTTP（局域网 IP / 未强制 HTTPS 的 Nginx）
+    // 访问时，secure cookie 会被浏览器拒绝保存，导致登录后 /auth/me 拿不到会话而循环回登录页。
+    // 正确判据：请求实际跑在 HTTPS 上（含 Nginx 反向代理透传的 x-forwarded-proto），
+    // 或仅本机回环（Electron / 127.0.0.1）访问时 —— 这些场景才需要/可设置 secure。
+    const proto = (req?.headers?.['x-forwarded-proto'] || '').toLowerCase();
+    const isHttps = req?.secure === true || proto === 'https';
+    // 允许显式覆盖：COOKIE_SECURE=1 强制 secure（仅当你确定全链路 HTTPS 时）
+    const forceSecure = process.env.COOKIE_SECURE === '1';
+    const secure = isHttps || forceSecure;
+
     const opts = {
       httpOnly: true,
-      secure: isProd,
+      secure,
+      // sameSite 默认 'lax'：同源（前端与后端同域，或前端从 file:// 经 credentials 调本地 127.0.0.1:8000）
+      // 已足够携带 Cookie；跨端口同域场景 cookies 仍随同源发送。'none' 仅当明确跨站时才需要，
+      // 但 none 强制要求 secure=true，故 HTTP 场景不可选 none。
       sameSite: 'lax' as const,
       path: '/',
     };

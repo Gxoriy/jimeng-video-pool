@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser } from '../auth/auth.service';
+import { MediaService } from '../media/media.service';
 import { PromptType, NetworkScope, Role } from '../common/roles.enum';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { AiChannelClient, ChatPart } from '../pipeline/clients/ai-channel.client';
@@ -32,6 +33,7 @@ export class LibrariesService {
   constructor(
     private prisma: PrismaService,
     private ai: AiChannelClient,
+    private media: MediaService,
   ) {}
 
   private whereLike(q?: string) {
@@ -114,9 +116,9 @@ export class LibrariesService {
     const c = await this.prisma.character.findUnique({ where: { id } });
     if (!c) throw new NotFoundException('形象不存在');
 
-    const rawUrls: string[] = [];
+    const raw: Array<{ url: string; localPath?: string | null }> = [];
     for (const u of dto.urls || []) {
-      if (u?.trim()) rawUrls.push(u.trim());
+      if (u?.trim()) raw.push({ url: u.trim() });
     }
     if (dto.uploadIds?.length) {
       for (const uid of dto.uploadIds) {
@@ -124,30 +126,43 @@ export class LibrariesService {
         if (!up) continue;
         // 上传文件按 user_id 隔离，非管理员只能用自己上传的
         if (user.role !== Role.SUPER_ADMIN && up.userId !== user.id) continue;
-        if (up.url) rawUrls.push(up.url);
+        if (up.url) raw.push({ url: up.url, localPath: up.localPath || null });
       }
     }
 
     // 1) 请求内去重：相同 URL 只保留一份
     const seen = new Set<string>();
-    const uniqueUrls = rawUrls.filter((u) => {
-      if (seen.has(u)) return false;
-      seen.add(u);
+    const unique = raw.filter((r) => {
+      if (seen.has(r.url)) return false;
+      seen.add(r.url);
       return true;
     });
     // 2) 跳过本形象下已存在的相同 URL（防止双击确认/重复导入产生两份相同照片）
     const existing = await this.prisma.characterImage.findMany({
-      where: { characterId: id, status: 'active', url: { in: uniqueUrls } },
+      where: { characterId: id, status: 'active', url: { in: unique.map((r) => r.url) } },
       select: { url: true },
     });
     const existingUrls = new Set(existing.map((e) => e.url));
-    const toAdd = uniqueUrls.filter((u) => !existingUrls.has(u));
+    const toAdd = unique.filter((r) => !existingUrls.has(r.url));
 
-    for (const url of toAdd) {
+    for (const r of toAdd) {
+      // url 方式入库的图（如「再生成新风格」结果）可能没有本地副本：
+      // 尽量下载落盘，使「保留下来的图」都有本地副本；下载失败则保留远程 URL，
+      // localPath 留空（前端标记为「本地副本缺失」，引导用户重传/重生成）。
+      // 本地上传已带 localPath，直接沿用，无需再下载。
+      let localPath: string | null = r.localPath || null;
+      if (!localPath && r.url) {
+        try {
+          localPath = await this.media.download(r.url, NetworkScope.RESTRICTED);
+        } catch {
+          localPath = null;
+        }
+      }
       await this.prisma.characterImage.create({
         data: {
           characterId: id,
-          url,
+          url: r.url,
+          localPath,
           style: dto.style || null,
           prompt: dto.prompt || null,
           createdBy: user.id,
@@ -157,9 +172,9 @@ export class LibrariesService {
     }
     // 若形象还没有封面，用最新一张补上
     if (!c.coverUrl && toAdd.length) {
-      await this.prisma.character.update({ where: { id }, data: { coverUrl: toAdd[toAdd.length - 1] } });
+      await this.prisma.character.update({ where: { id }, data: { coverUrl: toAdd[toAdd.length - 1].url } });
     }
-    return { added: toAdd.length, skipped: rawUrls.length - toAdd.length };
+    return { added: toAdd.length, skipped: raw.length - toAdd.length };
   }
 
   /** 删除形象下某张图（同步维护封面） */

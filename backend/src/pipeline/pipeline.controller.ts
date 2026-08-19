@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpException, HttpStatus, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, HttpException, HttpStatus, NotFoundException, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth.service';
@@ -91,6 +91,75 @@ export class PipelineController {
     // 优先用用户个人 Hedra cookie，缺省回退全局 .env HEDRA_COOKIE_PATH
     const raw = await resolveUserHedraCookie(this.prisma, user.id);
     return this.hedra.generatePrompt({ text }, raw);
+  }
+
+  /**
+   * 提示词扩写（仅文本，不生成视频）。
+   * 供视频工作区「提示词扩写」按钮调用：用户填动作提示词后，点此按钮获得更专业的扩写结果，
+   * 结果写回输入框，由用户决定是否继续生成视频。
+   *
+   * 降级策略（仅在本按钮手动触发时）：
+   *  - 先用 Hedra 扩写；若 Hedra 失败（cookie 无效/网络异常），则降级到 AI 灵感（需要参考图 + 参考音频作为上下文）；
+   *  - 两者都失败才返回错误。降级到 AI 灵感时会带上当前选中的素材（characterImageId/imageUploadId/songId/audioUploadId）。
+   */
+  @Post('hedra/expand')
+  async hedraExpand(
+    @CurrentUser() user: AuthUser,
+    @Body('text') text?: string,
+    @Body('characterImageId') characterImageId?: string,
+    @Body('imageUploadId') imageUploadId?: string,
+    @Body('songId') songId?: string,
+    @Body('audioUploadId') audioUploadId?: string,
+  ) {
+    if (!text || !text.trim()) {
+      throw new HttpException('请先填写要扩写的提示词', HttpStatus.BAD_REQUEST);
+    }
+    const raw = await resolveUserHedraCookie(this.prisma, user.id);
+    try {
+      const result = await this.hedra.generatePrompt({ text: text.trim() }, raw);
+      return {
+        code: 0,
+        message: 'ok',
+        data: { prompt: result.prompt, model: result.model, usedFallback: result.usedFallback, source: 'hedra' },
+      };
+    } catch (e: any) {
+      // Hedra 失败：降级到 AI 灵感（需要参考图 + 参考音频作为上下文）
+      const hedraErr = e?.message || String(e);
+      try {
+        const insp = await this.p2.generate(user, {
+          referenceCharacterImageId: characterImageId,
+          imageUploadId,
+          songId,
+          audioUploadId,
+        });
+        const inspTask = await this.pollInspiration(insp.taskId);
+        const inspRd = (inspTask.resultData as Record<string, any> | null) || {};
+        const actionPrompt = inspRd.actionPrompt || inspTask.resultText || '';
+        if (!actionPrompt) throw new BadRequestException('AI 灵感未返回有效动作提示词');
+        return {
+          code: 0,
+          message: `Hedra 扩写失败，已降级到 AI 灵感（${hedraErr}）`,
+          data: { prompt: actionPrompt, model: 'inspiration', usedFallback: true, source: 'inspiration' },
+        };
+      } catch (e2: any) {
+        throw new HttpException(
+          `提示词扩写失败：Hedra 报错「${hedraErr}」，且 AI 灵感降级也失败：${e2?.message || e2}`,
+          HttpStatus.BAD_GATEWAY,
+        );
+      }
+    }
+  }
+
+  /** 轮询灵感任务直到成功/失败（降级链路使用，同步等待结果回填输入框） */
+  private async pollInspiration(taskId: string) {
+    for (let i = 0; i < 120; i++) {
+      const t = await this.prisma.task.findUnique({ where: { id: taskId } });
+      if (!t) throw new NotFoundException('灵感任务不存在');
+      if (t.status === 'success') return t;
+      if (t.status === 'failed') throw new BadRequestException(t.errorMessage || '灵感任务失败');
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+    throw new BadRequestException('等待 AI 灵感任务超时');
   }
 
   /**

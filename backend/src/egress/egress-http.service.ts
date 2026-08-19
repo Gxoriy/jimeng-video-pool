@@ -63,6 +63,21 @@ export class EgressHttpService {
         }
         const status = err?.response?.status;
         const raw = err?.response?.data;
+        // 诊断日志：打印真实报文，便于区分「上游业务错误」与「部署代理拦截」
+        if (err?.response) {
+          const h = err.response.headers || {};
+          const server = h['server'] || h['x-server'] || h['x-powered-by'] || '?';
+          const ctype = h['content-type'] || '?';
+          const bodySnip =
+            typeof raw === 'string'
+              ? raw.slice(0, 300)
+              : Buffer.isBuffer(raw)
+                ? raw.slice(0, 300).toString('utf8')
+                : JSON.stringify(raw).slice(0, 300);
+          console.error(
+            `[egress-http] 上游错误 ${status} ${method} ${url} | server=${server} content-type=${ctype} | body=${bodySnip}`,
+          );
+        }
         const msg =
           raw && typeof raw === 'object'
             ? JSON.stringify(raw).slice(0, 500)

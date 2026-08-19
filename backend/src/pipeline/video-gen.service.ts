@@ -1,7 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
-import { MediaService } from '../media/media.service';
 import { SettingsService } from '../settings/settings.service';
 import { AuthUser } from '../auth/auth.service';
 import { Executor, TaskType } from '../common/roles.enum';
@@ -49,7 +48,6 @@ export class VideoGenService {
     private config: ConfigService,
     private rh: RunningHubClient,
     private assets: AssetResolverService,
-    private media: MediaService,
     private settings: SettingsService,
     private recorder: TaskRecorderService,
   ) {}
@@ -175,9 +173,20 @@ export class VideoGenService {
 
     // ---- 上传素材到 RunningHub ----
     await log('info', '上传图片到 RunningHub…');
-    const imageFile = image.localPath
-      ? await this.rh.uploadLocalFile(apiKey, scope, image.localPath, 'image')
-      : await this.rh.uploadRemoteUrl(apiKey, scope, image.url, 'image');
+    let imageFile: string;
+    if (image.localPath) {
+      imageFile = await this.rh.uploadLocalFile(apiKey, scope, image.localPath, 'image');
+    } else {
+      // 库内形象图没有本地副本，只能回抓远程签名图（即梦等），极易因签名过期而 403。
+      // 与其抛晦涩的「外部调用失败 (403)」，不如明确告诉用户是参考图链接已失效。
+      try {
+        imageFile = await this.rh.uploadRemoteUrl(apiKey, scope, image.url, 'image');
+      } catch (e: any) {
+        throw new BadRequestException(
+          '参考图即梦链接已失效（签名过期），请重新上传或重新生成该形象图片',
+        );
+      }
+    }
     await log('info', `图片就绪：${imageFile}`);
 
     await log('info', '上传音频到 RunningHub…');
@@ -208,18 +217,14 @@ export class VideoGenService {
     });
 
     // ---- 落地 ----
+    // 视频结果链接仅 24h 有效，按需求「视频不下载到服务器，只提供 url 供用户及时下载」：
+    // 这里仅登记 url（不落盘本地文件），前端直接用该 url 预览 / 下载。
     const localPaths: Array<string | null> = [];
     for (const url of urls) {
-      try {
-        const lp = await this.media.download(url, scope);
-        localPaths.push(lp);
-        await this.prisma.media.create({
-          data: { taskId, type: 'video', url, localPath: lp },
-        });
-      } catch (e: any) {
-        await log('warn', `视频下载失败（仍可用远端链接）：${e?.message}`);
-        await this.prisma.media.create({ data: { taskId, type: 'video', url } });
-      }
+      localPaths.push(null);
+      await this.prisma.media.create({
+        data: { taskId, type: 'video', url },
+      });
     }
 
     await this.recorder.succeed(taskId, { urls, localPaths });

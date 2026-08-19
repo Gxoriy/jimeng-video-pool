@@ -85,21 +85,43 @@ export class SettingsService {
     }
   }
 
-  /** 校验 Key 是否有效（顺带回显账户 R 币余额，若接口支持） */
+  /**
+   * 校验 Key 是否有效，并回显账户 R 币余额。
+   *
+   * 依据 RunningHub 官方 OpenAPI（与 runninghub-cli 一致）：
+   *   POST {base}/uc/openapi/accountStatus
+   *   Authorization: Bearer <API_KEY>
+   *   body: { "apikey": "<API_KEY>" }
+   * 成功响应：{ code: 0, data: { remainCoins: "150.0", currentTaskCounts: "0", apiType: "coins" } }
+   * 失败响应：{ code: 806, msg: "APIKEY_USER_NOT_FOUND", data: null }
+   */
   async testRunninghubKey(user: AuthUser) {
     const key = await this.requireRunninghubKey(user.id);
-    const base = this.config.get<string>('app.runninghubApiBase');
-    const url = `${base}/api/openapi/v1/account/status`;
+    const base = (this.config.get<string>('app.runninghubApiBase') || 'https://www.runninghub.cn').replace(/\/$/, '');
+    const url = `${base}/uc/openapi/accountStatus`;
     try {
-      const resp = await this.http.get(url, user.networkScope, {
-        headers: { Authorization: `Bearer ${key}` },
-        timeout: 15000,
-      });
-      const d = resp.data?.data ?? resp.data;
+      const resp = await this.http.post(
+        url,
+        user.networkScope,
+        { apikey: key },
+        {
+          headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+          timeout: 15000,
+        },
+      );
+      const wrapper = resp.data ?? {};
+      const code = wrapper?.code;
+      const d = wrapper?.data ?? wrapper;
+      const hasBalance = d && (d.remainCoins != null || d.coins != null);
+      // 业务错误（如 APIKEY_USER_NOT_FOUND / TOKEN_INVALID）：code !== 0 或无余额数据
+      if ((code != null && code !== 0) || !hasBalance) {
+        return { ok: false, message: wrapper?.msg || '校验失败，请确认 Key 有效' };
+      }
+      const rawCoins = d.remainCoins ?? d.coins;
       return {
         ok: true,
-        remainCoins: d?.remainCoins ?? d?.coins ?? null,
-        raw: d,
+        remainCoins: rawCoins == null ? null : Number(rawCoins),
+        currentTaskCounts: d.currentTaskCounts != null ? Number(d.currentTaskCounts) : null,
       };
     } catch (e: any) {
       return { ok: false, message: e?.message || '校验失败' };
