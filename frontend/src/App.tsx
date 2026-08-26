@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import AppLayout from './layout/AppLayout';
 import Login from './pages/Login';
@@ -17,6 +18,7 @@ import AiChannels from './pages/AiChannels';
 import JimengGen from './pages/JimengGen';
 import JimengAccounts from './pages/JimengAccounts';
 import MediaLibrary from './pages/MediaLibrary';
+import { useFeatures } from './context/Features';
 
 /**
  * 路由：三阶段流水线
@@ -24,6 +26,14 @@ import MediaLibrary from './pages/MediaLibrary';
  *   /inspiration    P2 获取灵感
  *   /video          P3 视频生成
  */
+
+/** 即梦功能关闭时，重定向走即梦相关页面（菜单已隐藏，此处再兜底；后端接口也会返回 403） */
+function RequireJimengEnabled({ children }: { children: ReactNode }) {
+  const { hideJimeng } = useFeatures();
+  if (hideJimeng) return <Navigate to="/dashboard" replace />;
+  return <>{children}</>;
+}
+
 export default function App() {
   return (
     <Routes>
@@ -45,8 +55,8 @@ export default function App() {
         <Route path="libraries/songs" element={<Songs />} />
         <Route path="libraries/prompts" element={<Prompts />} />
 
-        {/* 即梦生成（登录可见） */}
-        <Route path="jimeng-gen" element={<JimengGen />} />
+        {/* 即梦生成（登录可见；隐藏即梦时由 RequireJimengEnabled 重定向） */}
+        <Route path="jimeng-gen" element={<RequireJimengEnabled><JimengGen /></RequireJimengEnabled>} />
 
         {/* 素材库（视频/图片） */}
         <Route path="libraries/media" element={<MediaLibrary />} />
@@ -58,7 +68,7 @@ export default function App() {
         {/* 仅超级管理员 */}
         <Route path="users" element={<Users />} />
         <Route path="ai-channels" element={<AiChannels />} />
-        <Route path="jimeng-accounts" element={<JimengAccounts />} />
+        <Route path="jimeng-accounts" element={<RequireJimengEnabled><JimengAccounts /></RequireJimengEnabled>} />
 
         {/* 旧路径兼容 */}
         <Route path="gen/image" element={<Navigate to="/character-gen" replace />} />

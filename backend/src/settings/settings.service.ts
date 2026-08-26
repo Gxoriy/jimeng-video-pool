@@ -157,6 +157,28 @@ export class SettingsService {
     return this.get(user);
   }
 
+  // ==================== 全局功能开关（SystemConfig，跨用户） ====================
+
+  /** 读取全局配置项；不存在则返回 null */
+  async getGlobal(key: string): Promise<string | null> {
+    const row = await this.prisma.systemConfig.findUnique({ where: { key } });
+    return row?.value ?? null;
+  }
+
+  /** 写入/更新全局配置项（upsert） */
+  async setGlobal(key: string, value: string): Promise<void> {
+    await this.prisma.systemConfig.upsert({
+      where: { key },
+      create: { key, value },
+      update: { value },
+    });
+  }
+
+  /** 即梦功能是否启用：hideJimeng !== 'true' 即为启用 */
+  async isJimengEnabled(): Promise<boolean> {
+    return (await this.getGlobal('hideJimeng')) !== 'true';
+  }
+
   /** 测试个人 Hedra cookie 是否可登录（验 profile 接口） */
   async testHedraCookie(user: AuthUser) {
     const u = await this.prisma.user.findUnique({

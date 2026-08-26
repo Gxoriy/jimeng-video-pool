@@ -7,11 +7,11 @@ export default defineConfig({
   // Electron 生产环境用 file:// 协议加载，相对路径才能正确解析 js/css 资源
   base: './',
   server: {
-    host: '127.0.0.1',
+    host: '0.0.0.0',
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8000',
+        target: 'http://0.0.0.0:18000',
         changeOrigin: true,
         withCredentials: true,
       },

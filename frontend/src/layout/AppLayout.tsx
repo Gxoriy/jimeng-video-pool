@@ -21,6 +21,7 @@ import {
 } from '@ant-design/icons';
 import { api, User as UserType } from '../api/client';
 import { TaskSessionProvider, clearWorkspaceStorage } from '../context/TaskSession';
+import { FeaturesProvider, useFeatures } from '../context/Features';
 
 const { Sider, Header, Content } = Layout;
 
@@ -42,31 +43,26 @@ const adminMenuItems = [
   { key: '/jimeng-accounts', icon: <SafetyCertificateOutlined />, label: '即梦账号池' },
 ];
 
-export default function AppLayout() {
+/** 真正渲染菜单/布局的壳；必须在 FeaturesProvider 内以读取 hideJimeng 开关 */
+function AppShell({ user }: { user: UserType }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const [user, setUser] = useState<UserType | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    api.get('/auth/me').then((r) => setUser(r.data.data)).catch(() => {
-      // 拦截器已处理刷新逻辑，这里失败说明 refresh token 也过期了
-      window.location.hash = '#/login';
-    }).finally(() => setLoading(false));
-  }, []);
-
-  if (loading) return null;
+  const { hideJimeng } = useFeatures();
 
   const isAdmin = user?.role === 'super_admin';
-  const menuItems = isAdmin ? [...baseMenuItems, ...adminMenuItems] : baseMenuItems;
+  let menuItems = isAdmin ? [...baseMenuItems, ...adminMenuItems] : baseMenuItems;
+  // 管理员关闭即梦功能时，对所有用户隐藏即梦菜单（生成 + 账号池）
+  if (hideJimeng) {
+    menuItems = menuItems.filter(
+      (it) => it.key !== '/jimeng-gen' && it.key !== '/jimeng-accounts',
+    );
+  }
 
   const selectedKey = '/' + (location.pathname.split('/')[1] || 'dashboard');
 
   const onLogout = async () => {
     await api.post('/auth/logout');
-    // 清掉本地草稿/任务快照，避免换账号后串数据
     clearWorkspaceStorage();
-    // file:// 协议下 href='/login' 会变成 file:///login 空白页，统一用 hash 跳转
     window.location.hash = '#/login';
   };
 
@@ -112,5 +108,24 @@ export default function AppLayout() {
         </Content>
       </Layout>
     </Layout>
+  );
+}
+
+export default function AppLayout() {
+  const [user, setUser] = useState<UserType | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.get('/auth/me').then((r) => setUser(r.data.data)).catch(() => {
+      window.location.hash = '#/login';
+    }).finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return null;
+
+  return (
+    <FeaturesProvider>
+      <AppShell user={user!} />
+    </FeaturesProvider>
   );
 }

@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Post, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, ForbiddenException, Get, Post, Put, UseGuards } from '@nestjs/common';
 import { IsString } from 'class-validator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -63,5 +63,27 @@ export class SettingsController {
   async testHedraCookie(@CurrentUser() user: AuthUser) {
     const data = await this.settings.testHedraCookie(user);
     return { code: 0, message: 'ok', data };
+  }
+
+  // ==================== 全局功能开关 ====================
+
+  /** 前端拉取功能开关（所有人可访问，用于隐藏菜单/选项） */
+  @Get('features')
+  async features() {
+    const hideJimeng = (await this.settings.getGlobal('hideJimeng')) === 'true';
+    return { code: 0, message: 'ok', data: { hideJimeng } };
+  }
+
+  /** 切换「隐藏即梦功能」（仅超级管理员） */
+  @Put('hide-jimeng')
+  async setHideJimeng(@CurrentUser() user: AuthUser, @Body() dto: { hide: boolean }) {
+    if (user.role !== 'super_admin') {
+      throw new ForbiddenException('仅超级管理员可切换即梦功能开关');
+    }
+    if (typeof dto?.hide !== 'boolean') {
+      throw new ForbiddenException('hide 必须为布尔值');
+    }
+    await this.settings.setGlobal('hideJimeng', dto.hide ? 'true' : 'false');
+    return { code: 0, message: 'ok' };
   }
 }

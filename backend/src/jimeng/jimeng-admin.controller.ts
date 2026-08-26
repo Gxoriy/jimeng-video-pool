@@ -19,6 +19,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthUser } from '../auth/auth.service';
 import { Role } from '../common/roles.enum';
 import { NetworkScope } from '../common/roles.enum';
+import { JimengEnabledGuard } from './jimeng-enabled.guard';
 
 /**
  * 即梦账号池管理 —— 仅超级管理员。
@@ -26,7 +27,7 @@ import { NetworkScope } from '../common/roles.enum';
  * 含 Phase 2 签到管理：手动触发单号/全量签到、查看签到状态。
  */
 @Controller('admin/jimeng-accounts')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, JimengEnabledGuard)
 @Roles(Role.SUPER_ADMIN)
 export class JimengAdminController {
   constructor(
@@ -37,12 +38,10 @@ export class JimengAdminController {
 
   @Post('import')
   async import(@Body() dto: ImportAccountsDto, @CurrentUser() user: AuthUser) {
-    const results: any[] = [];
-    for (const cookie of dto.cookies) {
-      const list = await this.svc.import(cookie, dto.source || 'local');
-      results.push(...list);
-    }
-    return { code: 0, message: 'ok', data: { imported: results.length, items: results } };
+    // dto.cookies 是用户粘贴的整段文本（可能含多账号）；service 内部负责拆分与逐条入库。
+    // 注意：dto.cookies 为 @IsString() 字符串，切勿按数组 for...of 遍历（会把字符串拆成单字符导致解析失败）。
+    const items = await this.svc.import(dto.cookies, dto.source || 'local');
+    return { code: 0, message: 'ok', data: { imported: items.length, items } };
   }
 
   @Get()

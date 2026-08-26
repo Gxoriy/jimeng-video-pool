@@ -171,6 +171,14 @@ export const deleteCharacterImage = (id: string, imageId: string) =>
 export const patchCharacterImage = (id: string, imageId: string, payload: { style?: string; prompt?: string; url?: string }) =>
   api.patch(`/libraries/characters/${id}/images/${imageId}`, payload).then(unwrap);
 
+/** 补全该形象下缺失的本地副本（存量数据迁移 / 此前下载失败的图补回本地副本） */
+export const backfillLocal = (id: string) =>
+  api.post(`/libraries/characters/${id}/backfill-local`, {}).then(unwrap) as Promise<{
+    backfilled: number;
+    failed: number;
+    total: number;
+  }>;
+
 /** 调用 AI 对指定提示词智能分类（返回 {category, tags}） */
 export const classifyPrompt = (id: string) =>
   api.post(`/libraries/prompts/${id}/classify`, {}).then(unwrap) as Promise<{

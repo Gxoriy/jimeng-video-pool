@@ -4,9 +4,9 @@ import { Type } from 'class-transformer';
 /* ================= 账号导入 / 更新 DTO（供 admin 控制器使用） ================= */
 
 export class ImportAccountsDto {
-  @IsArray()
-  @IsString({ each: true })
-  cookies: string[];
+  /** 整段 cookie 文本：支持单个账号的 JSON 数组、多账号换行分隔、或 name=value 头字符串 */
+  @IsString()
+  cookies: string;
 
   @IsOptional()
   @IsString()

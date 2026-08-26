@@ -14,8 +14,9 @@ import { JimengVideoService } from './jimeng-video.service';
 import { JimengImageService } from './jimeng-image.service';
 import { JimengAccountService } from './jimeng-account.service';
 import { GenerateVideoDto, GenerateImageDto } from './dto/jimeng.dto';
+import { JimengEnabledGuard } from './jimeng-enabled.guard';
 
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, JimengEnabledGuard)
 @Controller('jimeng')
 export class JimengController {
   constructor(

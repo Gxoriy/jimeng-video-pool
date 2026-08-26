@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Card, Table, Button, Modal, Form, Input, Select, Space, Tag, message, Popconfirm } from 'antd';
+import { Card, Table, Button, Modal, Form, Input, Select, Space, Tag, message, Popconfirm, Switch } from 'antd';
 import { api } from '../api/client';
+import { useFeatures } from '../context/Features';
 
 export default function Users() {
   const [data, setData] = useState<any[]>([]);
@@ -8,6 +9,28 @@ export default function Users() {
   const [page, setPage] = useState(1);
   const [edit, setEdit] = useState<any>(null);
   const [form] = Form.useForm();
+
+  const { hideJimeng, reload } = useFeatures();
+  const [me, setMe] = useState<any>(null);
+  const [switching, setSwitching] = useState(false);
+  useEffect(() => {
+    api.get('/auth/me').then((r) => setMe(r.data.data)).catch(() => {});
+  }, []);
+
+  const onToggleJimeng = async (checked: boolean) => {
+    setSwitching(true);
+    try {
+      await api.put('/settings/hide-jimeng', { hide: !checked });
+      message.success(
+        checked ? '已开启即梦功能（对所有用户可见）' : '已关闭即梦功能（对所有用户隐藏）',
+      );
+      await reload();
+    } catch (e: any) {
+      message.error(e?.response?.data?.message || '操作失败');
+    } finally {
+      setSwitching(false);
+    }
+  };
 
   const load = async (p = page) => {
     const r = await api.get(`/users?page=${p}&pageSize=20`);
@@ -56,6 +79,18 @@ export default function Users() {
   ];
 
   return (
+    <>
+      {me?.role === 'super_admin' && (
+        <Card title="功能开关（仅超级管理员）" style={{ marginBottom: 16 }}>
+          <Space>
+            <span>显示即梦功能（账号池 + 生成）</span>
+            <Switch checked={!hideJimeng} loading={switching} onChange={onToggleJimeng} />
+            <span style={{ color: '#888', fontSize: 12 }}>
+              关闭后，所有用户（含管理员）的前端菜单与后端接口都将隐藏即梦功能
+            </span>
+          </Space>
+        </Card>
+      )}
     <Card title="用户管理（仅超级管理员）"
       extra={<Button type="primary" onClick={() => { setEdit({}); form.resetFields(); }}>新建用户</Button>}>
       <Table rowKey="id" dataSource={data} columns={cols}
@@ -76,5 +111,6 @@ export default function Users() {
         </Form>
       </Modal>
     </Card>
+    </>
   );
 }

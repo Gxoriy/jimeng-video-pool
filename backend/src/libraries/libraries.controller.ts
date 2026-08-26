@@ -81,6 +81,12 @@ export class LibrariesController {
     const data = await this.libs.deleteCharacterImage(id, imageId);
     return { code: 0, message: 'ok', data };
   }
+  /** 补全该形象下缺失的本地副本（存量数据迁移 / 此前下载失败的图补回本地副本） */
+  @Post('characters/:id/backfill-local')
+  async backfillLocal(@Param('id') id: string) {
+    const data = await this.libs.backfillLocal(id);
+    return { code: 0, message: 'ok', data };
+  }
   @Patch('characters/:id/images/:imageId')
   async patchCharacterImage(
     @Param('id') id: string,

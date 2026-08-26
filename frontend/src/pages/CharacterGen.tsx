@@ -29,6 +29,7 @@ import {
   runCharacterGen,
 } from '../api/pipeline';
 import { useTaskSession } from '../context/TaskSession';
+import { useFeatures } from '../context/Features';
 import { ImageSourcePicker, ImageSourceValue } from '../components/SourcePickers';
 
 const sizeOptions = [
@@ -51,6 +52,7 @@ export default function CharacterGen() {
   const location = useLocation() as { state?: any };
   const { get: getSession, startCharacter, clear, getDraft, patchDraft, clearDraft } =
     useTaskSession();
+  const { hideJimeng } = useFeatures();
   const sess = getSession('character');
   const draft = getDraft('character');
 
@@ -97,6 +99,12 @@ export default function CharacterGen() {
 
   const selectedPromptId = Form.useWatch('promptId', form);
   const source = Form.useWatch('source', form) || 'ai';
+  // 即梦功能被隐藏时，若当前仍选中「即梦生成」则回退到 AI 渠道
+  useEffect(() => {
+    if (hideJimeng && source === 'jimeng') {
+      form.setFieldValue('source', 'ai');
+    }
+  }, [hideJimeng, source]);
   const selectedPrompt = useMemo(
     () => prompts.find((p) => p.id === selectedPromptId),
     [prompts, selectedPromptId],
@@ -202,14 +210,18 @@ export default function CharacterGen() {
             <Radio.Group
               optionType="button"
               buttonStyle="solid"
-              options={[
-                { label: 'AI 渠道', value: 'ai' },
-                { label: '即梦生成', value: 'jimeng' },
-              ]}
+              options={
+                hideJimeng
+                  ? [{ label: 'AI 渠道', value: 'ai' }]
+                  : [
+                      { label: 'AI 渠道', value: 'ai' },
+                      { label: '即梦生成', value: 'jimeng' },
+                    ]
+              }
             />
           </Form.Item>
 
-          {source === 'jimeng' ? (
+          {source === 'jimeng' && !hideJimeng ? (
             <Row gutter={16}>
               <Col xs={24} md={12}>
                 <Form.Item name="jimengModel" label="即梦模型" initialValue="jimeng-5.0">
@@ -333,7 +345,7 @@ export default function CharacterGen() {
           </Row>
 
           <Row gutter={16}>
-            {source === 'jimeng' ? (
+            {source === 'jimeng' && !hideJimeng ? (
               <>
                 <Col xs={12} md={6}>
                   <Form.Item name="ratio" label="比例">

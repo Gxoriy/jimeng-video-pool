@@ -9,6 +9,7 @@ import { TaskRecorderService } from './task-recorder.service';
 import { CharacterGenDto } from './dto/pipeline.dto';
 import { JimengCoreService } from '../jimeng/jimeng-core.service';
 import { JimengAccountService } from '../jimeng/jimeng-account.service';
+import { SettingsService } from '../settings/settings.service';
 import { decrypt } from '../common/utils/encryption.util';
 
 /**
@@ -31,6 +32,7 @@ export class CharacterGenService {
     private recorder: TaskRecorderService,
     private jimengCore: JimengCoreService,
     private jimengAccounts: JimengAccountService,
+    private settings: SettingsService,
   ) {}
 
   async generate(user: AuthUser, dto: CharacterGenDto) {
@@ -49,6 +51,12 @@ export class CharacterGenService {
 
     // ---- 3. 即梦原生生成分支 ----
     if (dto.source === 'jimeng') {
+      // 管理员关闭即梦功能时，即便前端隐藏了入口也要在后端兜底拒绝
+      if (!(await this.settings.isJimengEnabled())) {
+        throw new BadRequestException(
+          '即梦生成已被管理员关闭（请到「用户管理」重新开启「显示即梦功能」）',
+        );
+      }
       const model = dto.jimengModel || 'jimeng-5.0';
       const task = await this.recorder.start({
         userId: user.id,
@@ -160,24 +168,29 @@ export class CharacterGenService {
         throw new BadRequestException('即梦生成超时或未产出图片');
       }
 
-      const resultUrls: string[] = [];
-      const localPaths: Array<string | null> = [];
+      const items: Array<{ url: string; localPath: string | null }> = [];
       for (const url of images) {
-        resultUrls.push(url);
+        let localPath: string | null = null;
         try {
-          const lp = await this.media.download(url, NetworkScope.RESTRICTED);
-          localPaths.push(lp);
-          await this.prisma.media.create({
-            data: { taskId, type: 'image', url, localPath: lp },
+          // 即梦图片 CDN 需要 Referer 防盗链，否则只能下到 1x1 占位图
+          const lp = await this.media.download(url, NetworkScope.RESTRICTED, {
+            trusted: true,
+            headers: { Referer: 'https://jimeng.jianying.com/ai-tool/image/generate' },
           });
+          localPath = lp;
         } catch (e: any) {
           await this.recorder.log(taskId, 'warn', `图片下载失败：${e?.message}`);
         }
+        // url 保留为外部预览地址，本地副本优先展示
+        items.push({ url, localPath });
       }
-      if (!resultUrls.length) throw new BadRequestException('未产出任何图片');
+      if (!items.length) throw new BadRequestException('未产出任何图片');
 
-      await this.saveToLibrary(taskId, user, dto, prompt, model, resultUrls, localPaths);
-      await this.recorder.succeed(taskId, { urls: resultUrls, localPaths });
+      await this.saveToLibrary(taskId, user, dto, prompt, model, items);
+      await this.recorder.succeed(taskId, {
+        urls: items.map((i) => i.url),
+        localPaths: items.map((i) => i.localPath),
+      });
     } finally {
       this.jimengAccounts.release(account.id);
     }
@@ -214,36 +227,34 @@ export class CharacterGenService {
     });
     await this.recorder.log(taskId, 'info', `渠道返回 ${urls.length} 个 URL / ${b64.length} 个 base64`);
 
-    const resultUrls: string[] = [];
-    const localPaths: Array<string | null> = [];
+    // 每张图：下载落盘（本地副本优先展示），url 保留为外部预览地址（仅预览，过期不影响本地副本）
+    const items: Array<{ url: string; localPath: string | null; fromBase64?: boolean }> = [];
 
     for (const url of urls) {
-      resultUrls.push(url);
+      let localPath: string | null = null;
       try {
-        const lp = await this.media.download(url, user.networkScope);
-        localPaths.push(lp);
-        await this.prisma.media.create({
-          data: { taskId, type: 'image', url, localPath: lp },
-        });
+        const lp = await this.media.download(url, user.networkScope, { trusted: true });
+        localPath = lp;
       } catch (e: any) {
         await this.recorder.log(taskId, 'warn', `图片下载失败：${e?.message}`);
       }
+      items.push({ url, localPath });
     }
     for (const raw of b64) {
       const lp = await this.media.saveBase64(raw);
-      localPaths.push(lp);
-      resultUrls.push(`file://${lp}`);
-      await this.prisma.media.create({
-        data: { taskId, type: 'image', url: `file://${lp}`, localPath: lp },
-      });
+      // base64 图没有外部 url：留空，待入库后改写为本地 serve 地址
+      items.push({ url: '', localPath: lp, fromBase64: true });
     }
 
-    if (!resultUrls.length) throw new BadRequestException('未产出任何图片');
+    if (!items.length) throw new BadRequestException('未产出任何图片');
 
     // ---- 入形象库 ----
-    await this.saveToLibrary(taskId, user, dto, prompt, channel.model, resultUrls, localPaths);
+    await this.saveToLibrary(taskId, user, dto, prompt, channel.model, items);
 
-    await this.recorder.succeed(taskId, { urls: resultUrls, localPaths });
+    await this.recorder.succeed(taskId, {
+      urls: items.map((i) => i.url),
+      localPaths: items.map((i) => i.localPath),
+    });
   }
 
   private async saveToLibrary(
@@ -252,8 +263,7 @@ export class CharacterGenService {
     dto: CharacterGenDto,
     prompt: string,
     model: string,
-    urls: string[],
-    localPaths: string[],
+    items: Array<{ url: string; localPath: string | null; fromBase64?: boolean }>,
   ) {
     let characterId = dto.saveToCharacterId;
 
@@ -261,7 +271,7 @@ export class CharacterGenService {
       const created = await this.prisma.character.create({
         data: {
           name: dto.newCharacterName.trim(),
-          coverUrl: urls[0],
+          coverUrl: undefined,
           tags: dto.newCharacterTags || [],
           description: prompt.slice(0, 500),
         },
@@ -272,19 +282,42 @@ export class CharacterGenService {
 
     if (!characterId) return;
 
-    for (let i = 0; i < urls.length; i++) {
-      await this.prisma.characterImage.create({
+    let firstImageId: string | null = null;
+    let firstCoverUrl: string | null = null;
+    for (const it of items) {
+      const row = await this.prisma.characterImage.create({
         data: {
           characterId,
-          url: urls[i],
-          localPath: localPaths[i] ?? null,
+          url: it.url || 'local',
+          localPath: it.localPath ?? null,
           prompt,
           model,
           createdBy: user.id,
         },
       });
+      // base64 图没有外部 url：入库后把 url 改写为本地 serve 地址
+      if (it.fromBase64 && it.localPath) {
+        const serve = this.media.characterImageServeUrl(row.id);
+        await this.prisma.characterImage.update({ where: { id: row.id }, data: { url: serve } });
+      }
+      if (!firstImageId) {
+        firstImageId = row.id;
+        // 封面优先展示本地副本：有 localPath 用本地 serve 地址，否则退回外部预览 url
+        firstCoverUrl = it.localPath ? this.media.characterImageServeUrl(row.id) : row.url;
+      }
     }
-    await this.recorder.log(taskId, 'info', `已挂载 ${urls.length} 张图到形象库`);
+
+    // 封面：仅在该形象尚无封面时补一张（优先本地副本）
+    if (firstImageId && firstCoverUrl) {
+      const c = await this.prisma.character.findUnique({
+        where: { id: characterId },
+        select: { coverUrl: true },
+      });
+      if (!c?.coverUrl) {
+        await this.prisma.character.update({ where: { id: characterId }, data: { coverUrl: firstCoverUrl } });
+      }
+    }
+    await this.recorder.log(taskId, 'info', `已挂载 ${items.length} 张图到形象库`);
   }
 
   /** 提示词：优先库里挑的，其次手填；两者都无则报错（需求：必填） */

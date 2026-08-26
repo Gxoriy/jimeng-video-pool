@@ -23,7 +23,7 @@ import {
   message,
   Progress,
 } from 'antd';
-import { InboxOutlined, DownloadOutlined, DeleteOutlined, EditOutlined, FileTextOutlined, SaveOutlined } from '@ant-design/icons';
+import { InboxOutlined, DownloadOutlined, DeleteOutlined, EditOutlined, FileTextOutlined, SaveOutlined, CloudDownloadOutlined } from '@ant-design/icons';
 import {
   listCharactersPage,
   getCharacter,
@@ -31,6 +31,7 @@ import {
   deleteCharacter,
   appendCharacterImages,
   deleteCharacterImage,
+  backfillLocal,
   importCharactersFromUpload,
   uploadFile,
   runCharacterGen,
@@ -44,6 +45,8 @@ import {
   type CharacterImportResult,
   type CharacterImportItemResult,
 } from '../api/pipeline';
+import { useFeatures } from '../context/Features';
+import { characterImageSrc, resolveServe } from '../utils/imgSrc';
 
 type Status = 'pending_review' | 'active';
 
@@ -79,6 +82,12 @@ export default function Characters() {
   const [regenRatio, setRegenRatio] = useState('1:1');
   const [regenResolution, setRegenResolution] = useState('2k');
   const [regenSize, setRegenSize] = useState('1024x1536');
+
+  // 全局功能开关：即梦被隐藏时，再生成只保留 AI 渠道
+  const { hideJimeng } = useFeatures();
+  useEffect(() => {
+    if (hideJimeng && regenSource === 'jimeng') setRegenSource('ai');
+  }, [hideJimeng]);
 
   /* ---------- 编辑形象信息（改名 / 分类 / 标签） ---------- */
   const [editOpen, setEditOpen] = useState(false);
@@ -351,6 +360,22 @@ export default function Characters() {
     }
   };
 
+  /** 补全该形象下缺失的本地副本（存量数据迁移 / 此前下载失败的图补回本地副本） */
+  const onBackfill = async () => {
+    if (!selectedId) return;
+    try {
+      const r = await backfillLocal(selectedId);
+      if (r.failed > 0) {
+        message.warning(`已补回 ${r.backfilled} 张，失败 ${r.failed} 张（外部链接可能已失效，请重新生成/上传）`);
+      } else {
+        message.success(`已补全 ${r.backfilled} 张本地副本`);
+      }
+      selectCharacter(selectedId);
+    } catch (e: any) {
+      message.error(e?.response?.data?.message || '补全失败');
+    }
+  };
+
   /* ---------------- 批量导入（新建形象） ---------------- */
   const doBulkImport = async () => {
     if (!bulkFiles.length) return message.warning('请先选择本地图片文件');
@@ -412,7 +437,7 @@ export default function Characters() {
               >
                 <Space>
                   {c.coverUrl ? (
-                    <Image src={c.coverUrl} width={36} height={36} style={{ objectFit: 'cover', borderRadius: 4 }} preview={false} />
+                    <Image src={resolveServe(c.coverUrl)} width={36} height={36} style={{ objectFit: 'cover', borderRadius: 4 }} preview={false} />
                   ) : (
                     <div style={{ width: 36, height: 36, background: '#f0f0f0', borderRadius: 4 }} />
                   )}
@@ -435,6 +460,9 @@ export default function Characters() {
               <Space>
                 <Button size="small" icon={<EditOutlined />} onClick={openEdit}>
                   编辑信息
+                </Button>
+                <Button size="small" icon={<CloudDownloadOutlined />} onClick={onBackfill}>
+                  补全本地副本
                 </Button>
                 <Button size="small" icon={<DownloadOutlined />} disabled={checked.size === 0} onClick={downloadSelected}>
                   下载勾选（{checked.size}）
@@ -480,7 +508,7 @@ export default function Characters() {
                       </Tag>
                     </Tooltip>
                   )}
-                    <Image src={img.url} width={134} height={134} style={{ objectFit: 'cover', borderRadius: 4, marginTop: 4 }} />
+                    <Image src={characterImageSrc(img)} width={134} height={134} style={{ objectFit: 'cover', borderRadius: 4, marginTop: 4 }} />
                     <div style={{ marginTop: 4 }}>
                       <Popconfirm title="删除这张图？" onConfirm={() => onDeleteImage(img.id)}>
                         <Button size="small" danger icon={<DeleteOutlined />} />
@@ -541,12 +569,16 @@ export default function Characters() {
                     buttonStyle="solid"
                     value={regenSource}
                     onChange={(e) => setRegenSource(e.target.value)}
-                    options={[
-                      { label: 'AI 渠道', value: 'ai' },
-                      { label: '即梦生成', value: 'jimeng' },
-                    ]}
+                    options={
+                      hideJimeng
+                        ? [{ label: 'AI 渠道', value: 'ai' }]
+                        : [
+                            { label: 'AI 渠道', value: 'ai' },
+                            { label: '即梦生成', value: 'jimeng' },
+                          ]
+                    }
                   />
-                  {regenSource === 'jimeng' ? (
+                  {regenSource === 'jimeng' && !hideJimeng ? (
                     <>
                       <Select
                         value={regenJimengModel}
@@ -639,7 +671,7 @@ export default function Characters() {
         renderItem={(row) => (
           <List.Item>
             <Space>
-              {row.coverUrl && <Image src={row.coverUrl} width={32} height={32} preview={false} />}
+              {row.coverUrl && <Image src={resolveServe(row.coverUrl)} width={32} height={32} preview={false} />}
               <span>{row.name}</span>
               {(row.tags || []).map((t) => <Tag key={t} color="blue">{t}</Tag>)}
               {row.category && <Tag color="green">{row.category}</Tag>}

@@ -90,4 +90,30 @@ export class EgressService {
       );
     }
   }
+
+  /**
+   * 仅校验目标非内网（不做白名单 host 检查）。用于后端下载「可信的已知外部图」
+   * （即梦/AI 渠道生成结果 URL），避免因白名单漏配导致落盘失败、出现「本地副本缺失」。
+   * 仍会拦截 RFC1918/回环/链路本地等内网地址，保留 SSRF 防护。
+   */
+  async assertPublic(targetUrl: string): Promise<void> {
+    let url: URL;
+    try {
+      url = new URL(targetUrl);
+    } catch {
+      throw new ForbiddenException('非法的目标 URL');
+    }
+    const host = url.hostname;
+
+    let addresses: string[] = [];
+    try {
+      const records = await dns.lookup(host, { all: true });
+      addresses = records.map((r) => r.address);
+    } catch {
+      throw new ForbiddenException(`无法解析目标主机: ${host}`);
+    }
+    if (addresses.some((ip) => this.isPrivateIp(ip))) {
+      throw new ForbiddenException(`禁止访问内网地址: ${host}`);
+    }
+  }
 }

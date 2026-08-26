@@ -145,20 +145,29 @@ export class LibrariesService {
     const existingUrls = new Set(existing.map((e) => e.url));
     const toAdd = unique.filter((r) => !existingUrls.has(r.url));
 
+    let firstCreatedId: string | null = null;
+    let firstCoverUrl: string | null = null;
     for (const r of toAdd) {
       // url 方式入库的图（如「再生成新风格」结果）可能没有本地副本：
-      // 尽量下载落盘，使「保留下来的图」都有本地副本；下载失败则保留远程 URL，
+      // 尽量下载落盘，使「保留下来的图」都有本地副本；下载失败则保留远程 URL（url 仅作预览），
       // localPath 留空（前端标记为「本地副本缺失」，引导用户重传/重生成）。
       // 本地上传已带 localPath，直接沿用，无需再下载。
       let localPath: string | null = r.localPath || null;
       if (!localPath && r.url) {
         try {
-          localPath = await this.media.download(r.url, NetworkScope.RESTRICTED);
-        } catch {
+          // trusted：后端下载已知外部生成结果图，跳过白名单但保留内网拦截
+          // 即梦 CDN 需 Referer，否则返回 1x1 占位图
+          localPath = await this.media.download(r.url, NetworkScope.RESTRICTED, {
+            trusted: true,
+            headers: { Referer: 'https://jimeng.jianying.com/ai-tool/image/generate' },
+          });
+        } catch (e: any) {
+          this.logger.warn(`图片下载失败（${r.url}）：${e?.message}`);
           localPath = null;
         }
       }
-      await this.prisma.characterImage.create({
+      // url 仅作外部预览，不改写为本地服务地址（前端优先展示 localPath 对应的本地副本）
+      const row = await this.prisma.characterImage.create({
         data: {
           characterId: id,
           url: r.url,
@@ -169,12 +178,72 @@ export class LibrariesService {
           status: 'active',
         },
       });
+      if (!firstCreatedId) {
+        firstCreatedId = row.id;
+        // 封面优先本地副本：有 localPath 用本地 serve 地址，否则退回外部预览 url
+        firstCoverUrl = localPath ? this.media.characterImageServeUrl(row.id) : r.url;
+      }
     }
-    // 若形象还没有封面，用最新一张补上
-    if (!c.coverUrl && toAdd.length) {
-      await this.prisma.character.update({ where: { id }, data: { coverUrl: toAdd[toAdd.length - 1].url } });
+
+    // 补下载：本形象下已存在但 localPath 仍为空（如生成时已入库、确认入库时被判重跳过）的图，
+    // 统一尝试下载落盘，消除「本地副本缺失」红标（url 仍保留为外部预览地址）。
+    const existingEmpty = await this.prisma.characterImage.findMany({
+      where: { characterId: id, status: 'active', localPath: null, url: { in: unique.map((r) => r.url) } },
+    });
+    for (const e of existingEmpty) {
+      try {
+        const lp = await this.media.download(e.url, NetworkScope.RESTRICTED, {
+          trusted: true,
+          headers: { Referer: 'https://jimeng.jianying.com/ai-tool/image/generate' },
+        });
+        if (lp) {
+          await this.prisma.characterImage.update({ where: { id: e.id }, data: { localPath: lp } });
+        }
+      } catch (e2: any) {
+        this.logger.warn(`补下载失败（${e.url}）：${e2?.message}`);
+      }
+    }
+
+    // 若形象还没有封面，用最新一张补上（优先本地副本）
+    if (!c.coverUrl && firstCoverUrl) {
+      await this.prisma.character.update({ where: { id }, data: { coverUrl: firstCoverUrl } });
     }
     return { added: toAdd.length, skipped: raw.length - toAdd.length };
+  }
+
+  /** 补全某形象下缺失的本地副本：把仍有外部 url 但没有 localPath 的图下载落盘。
+   *  用于存量数据迁移 / 此前下载失败的图补回本地副本（url 仍保留为外部预览地址）。 */
+  async backfillLocal(id: string): Promise<{ backfilled: number; failed: number; total: number }> {
+    const c = await this.prisma.character.findUnique({ where: { id } });
+    if (!c) throw new NotFoundException('形象不存在');
+    const imgs = await this.prisma.characterImage.findMany({
+      where: { characterId: id, status: 'active', localPath: null },
+    });
+    let backfilled = 0;
+    let failed = 0;
+    for (const img of imgs) {
+      if (!img.url || img.url.startsWith('/') || img.url.startsWith('file:') || img.url.startsWith('local')) {
+        // 没有可用的外部 url（如纯本地/serve 地址），无法补下载
+        failed++;
+        continue;
+      }
+      try {
+        const lp = await this.media.download(img.url, NetworkScope.RESTRICTED, {
+          trusted: true,
+          headers: { Referer: 'https://jimeng.jianying.com/ai-tool/image/generate' },
+        });
+        if (lp) {
+          await this.prisma.characterImage.update({ where: { id: img.id }, data: { localPath: lp } });
+          backfilled++;
+        } else {
+          failed++;
+        }
+      } catch (e: any) {
+        this.logger.warn(`补下载失败（${img.url}）：${e?.message}`);
+        failed++;
+      }
+    }
+    return { backfilled, failed, total: imgs.length };
   }
 
   /** 删除形象下某张图（同步维护封面） */

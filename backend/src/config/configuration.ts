@@ -55,7 +55,8 @@ export default registerAs('app', () => ({
    * 默认 false —— 素材库不再本地存原文件，仅保留 URL 与工作信息（写入 assets 表）。
    * 设 true 可回退到旧行为（仍下载到 STORAGE_PATH）。
    */
-  storeMediaLocally: (process.env.STORE_MEDIA_LOCALLY || 'false') !== 'false',
+  // 本地副本：默认开启（避免外链过期丢图）。仅当显式配置 STORE_MEDIA_LOCALLY=false 才关闭
+  storeMediaLocally: process.env.STORE_MEDIA_LOCALLY !== 'false',
 
   /**
    * 后端同步接口 /api/assets/sync 的调用凭证。

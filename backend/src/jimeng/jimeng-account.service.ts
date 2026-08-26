@@ -2,6 +2,7 @@ import { Injectable, Logger, BadRequestException, NotFoundException } from '@nes
 import { PrismaService } from '../prisma/prisma.service';
 import { encrypt, decrypt } from '../common/utils/encryption.util';
 import { JimengCoreService, JimengInsufficientCreditError } from './jimeng-core.service';
+import { parseCookieInput, extractSession } from './jimeng-cookie-parser';
 import { NetworkScope } from '../common/roles.enum';
 import { FileService } from '../file/file.service';
 
@@ -23,29 +24,7 @@ export class JimengAccountService {
     private readonly fileService: FileService,
   ) {}
 
-  /** 从浏览器导出的 cookie 数组中提取 sessionid + 过期时间 */
-  private parseCookie(raw: string): { sessionid: string; expireAt: Date | null; cookieJson: string } {
-    let arr: any[];
-    try {
-      arr = JSON.parse(raw);
-    } catch {
-      throw new BadRequestException('cookie 不是合法 JSON 数组');
-    }
-    if (!Array.isArray(arr)) throw new BadRequestException('cookie 必须是数组');
-    const find = (name: string) => arr.find((c) => c?.name === name)?.value;
-    const sessionid = find('sessionid') || find('sid_tt') || find('sessionid_ss');
-    if (!sessionid) throw new BadRequestException('cookie 中找不到 sessionid/sid_tt');
-    const expStr = find('sessionid_expiration') || arr.find((c) => c?.name === 'sessionid')?.expirationDate;
-    let expireAt: Date | null = null;
-    if (expStr) {
-      const n = typeof expStr === 'number' ? expStr : Number(expStr);
-      if (!Number.isNaN(n)) {
-        // browser cookie export 的 expirationDate 是秒级 Unix 时间戳；毫秒级则 >= 1e12
-        expireAt = new Date(n < 1e12 ? n * 1000 : n);
-      }
-    }
-    return { sessionid, expireAt, cookieJson: JSON.stringify(arr) };
-  }
+  // cookie 解析逻辑见 ./jimeng-cookie-parser（parseCookieInput / extractSession），便于单测。
 
   /** 批量导入（支持多份 cookie 用换行/数组分隔） */
   async import(raw: string, source = 'local'): Promise<ImportResult[]> {
@@ -53,14 +32,20 @@ export class JimengAccountService {
     const items = this.splitCookies(raw);
     const results: ImportResult[] = [];
     for (const one of items) {
-      const { sessionid, expireAt, cookieJson } = this.parseCookie(one);
+      const parsed = parseCookieInput(one);
+      const { sessionid, expireAt, cookieJson } = extractSession(parsed.cookieArr);
+      const label = parsed.label;
+      const metaSource = parsed.source;
+      const credits = parsed.credits;
+      const expireAtMeta = parsed.expireAtMeta;
       const created = await this.prisma.jimengAccount.create({
         data: {
-          label: undefined,
+          label: label ?? undefined,
           cookieEnc: encrypt(cookieJson),
           sessionid: encrypt(sessionid),
-          expireAt,
-          source,
+          expireAt: expireAtMeta ?? expireAt,
+          source: metaSource ?? source,
+          credits: typeof credits === 'number' ? credits : undefined,
           status: 'active',
         },
       });
@@ -70,23 +55,42 @@ export class JimengAccountService {
   }
 
   private splitCookies(raw: string): string[] {
-    const trimmed = raw.trim();
-    // 整段是 JSON 数组（可能是单个账号数组，或多个账号被包成二维数组）
+    const trimmed = (raw || '').trim();
+    if (!trimmed) throw new BadRequestException('cookie 内容为空');
+    // 整段是 JSON 数组（单个账号数组 / 多账号二维 / 多账号字符串数组）
     if (trimmed.startsWith('[')) {
       try {
         const parsed = JSON.parse(trimmed);
         if (Array.isArray(parsed)) {
-          // 每个元素是 cookie 对象 → 单个账号
-          if (parsed.length && parsed[0] && typeof parsed[0] === 'object' && !Array.isArray(parsed[0])) {
+          // 元素是 cookie 对象 → 单个账号（浏览器导出的整份 cookie 数组）
+          if (parsed.length && typeof parsed[0] === 'object' && !Array.isArray(parsed[0])) {
             return [JSON.stringify(parsed)];
           }
-          // 元素是字符串（每段 cookie JSON）或数组 → 多个账号
-          if (parsed.every((p) => typeof p === 'string')) return parsed as string[];
+          // 元素是字符串（每段是一个账号的 cookie JSON）→ 多账号
+          if (parsed.every((p) => typeof p === 'string')) {
+            return parsed.map((s) => s.trim()).filter(Boolean);
+          }
+          // 元素是数组（二维）→ 展平为多个账号
+          if (parsed.every((p) => Array.isArray(p))) {
+            return parsed.map((a: any[]) => JSON.stringify(a));
+          }
         }
       } catch {
         /* fallback 按换行 */
       }
     }
+    // 整段是单个 JSON 对象（例如本系统导出的账号记录，可能跨多行）
+    if (trimmed.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          return [JSON.stringify(parsed)];
+        }
+      } catch {
+        /* fallback 按换行 */
+      }
+    }
+    // 退化：按换行分隔（支持 Netscape cookie 头文本或多段 JSON）
     return trimmed.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
   }
 

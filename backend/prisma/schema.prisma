@@ -330,3 +330,13 @@ model Tag {
   @@unique([name, type])
   @@map("tags")
 }
+
+// 全局功能开关（key-value，供管理员配置系统级行为，如 hideJimeng）
+model SystemConfig {
+  key        String   @id
+  value      String?
+  createdAt  DateTime @default(now())  @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@map("system_config")
+}
