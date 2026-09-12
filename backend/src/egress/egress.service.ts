@@ -65,7 +65,9 @@ export class EgressService {
     }
     const host = url.hostname;
 
-    // 解析所有 A/AAAA 记录，任一为内网即拒绝（防 DNS rebinding）
+    // 解析所有 A/AAAA 记录。仅当「全部」地址都是私网/保留地址时才拒绝
+    // （防 DNS rebinding 与误伤双栈环境：沙箱出口代理常把外部域名解析成
+    //  fd00::/8 这类 ULA IPv6 + 公网 IPv4 并存，只要存在任一可达公网地址即放行）。
     let addresses: string[] = [];
     try {
       const records = await dns.lookup(host, { all: true });
@@ -75,7 +77,7 @@ export class EgressService {
       throw new ForbiddenException(`无法解析目标主机: ${host}`);
     }
 
-    if (addresses.some((ip) => this.isPrivateIp(ip))) {
+    if (addresses.length > 0 && addresses.every((ip) => this.isPrivateIp(ip))) {
       throw new ForbiddenException(`禁止访问内网地址: ${host}`);
     }
 
@@ -112,7 +114,7 @@ export class EgressService {
     } catch {
       throw new ForbiddenException(`无法解析目标主机: ${host}`);
     }
-    if (addresses.some((ip) => this.isPrivateIp(ip))) {
+    if (addresses.length > 0 && addresses.every((ip) => this.isPrivateIp(ip))) {
       throw new ForbiddenException(`禁止访问内网地址: ${host}`);
     }
   }

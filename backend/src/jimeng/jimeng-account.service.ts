@@ -38,17 +38,24 @@ export class JimengAccountService {
       const metaSource = parsed.source;
       const credits = parsed.credits;
       const expireAtMeta = parsed.expireAtMeta;
-      const created = await this.prisma.jimengAccount.create({
-        data: {
-          label: label ?? undefined,
-          cookieEnc: encrypt(cookieJson),
-          sessionid: encrypt(sessionid),
-          expireAt: expireAtMeta ?? expireAt,
-          source: metaSource ?? source,
-          credits: typeof credits === 'number' ? credits : undefined,
-          status: 'active',
-        },
-      });
+      let created;
+      try {
+        created = await this.prisma.jimengAccount.create({
+          data: {
+            label: label ?? undefined,
+            cookieEnc: encrypt(cookieJson),
+            sessionid: encrypt(sessionid),
+            expireAt: expireAtMeta ?? expireAt,
+            source: metaSource ?? source,
+            credits: typeof credits === 'number' ? credits : undefined,
+            status: 'active',
+          },
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        this.logger.error(`导入即梦账号失败: ${msg}`);
+        throw new BadRequestException(`导入失败：${msg}`);
+      }
       results.push({ id: created.id, label: created.label || '', source: created.source });
     }
     return results;

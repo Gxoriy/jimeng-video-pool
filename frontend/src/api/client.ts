@@ -5,7 +5,7 @@ import axios from 'axios';
 // Electron 生产环境从 file:// 加载，相对 /api 会指向文件系统，必须显式指回本地后端。
 const isElectronFileProtocol =
   typeof window !== 'undefined' && window.location?.protocol === 'file:';
-const API_BASE = isElectronFileProtocol ? 'http://127.0.0.1:8000/api' : '/api';
+const API_BASE = isElectronFileProtocol ? 'http://127.0.0.1:18000/api' : '/api';
 
 export const api = axios.create({
   baseURL: API_BASE,
