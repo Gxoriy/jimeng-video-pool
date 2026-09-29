@@ -1,0 +1,7 @@
+/* 让 Sider 内部容器成为 flex 纵向布局，用户信息块始终固定在侧边栏底部 */
+.ant-layout-sider-children {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
